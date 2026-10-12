@@ -506,6 +506,36 @@ contract CityGuardianTest is CreBase {
         assertEq(_metadata(WORKFLOW_ID, creOwner).length, 64);
     }
 
+    /// @dev Payload produced by the TypeScript workflow (cre/city-guardian/risk.ts encodeEvacuationReport) for fixed
+    /// inputs. If either side changes its layout this test fails, instead of a real report being refused onchain.
+    function test_PayloadEncodedByTheCreWorkflowMatchesWhatTheGuardianDecodes() public {
+        bytes memory fromTypeScript =
+            hex"000000000000000000000000083899bee8138e5f951db568926393fdb1f418a200000000000000000000000000000000000000000000000000000000000a000100000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000a1a1a111111111111111111111111111111111111111111111111111111111111111110000000000000000000000000000000000000000000000001e4ba3a26233c850000000000000000000000000000000000000000000000000000000006acd4f00";
+        bytes memory fromSolidity = abi.encode(
+            address(0x083899bEE8138E5f951db568926393FDb1F418A2),
+            address(0x00000000000000000000000000000000000a0001),
+            uint8(1),
+            address(0x0000000000000000000000000000000000a1A1A1),
+            bytes32(0x1111111111111111111111111111111111111111111111111111111111111111),
+            uint64(2183018362218727504),
+            uint256(1791840000)
+        );
+        assertEq(fromTypeScript, fromSolidity);
+        assertEq(fromTypeScript.length, 224);
+    }
+
+    /// @dev A report built exactly like the workflow builds it (target = this guardian, chain selector, fresh
+    /// scheduledAt) is accepted and evacuates the adapter.
+    function test_ReportBuiltLikeTheWorkflowEvacuatesTheAdapter() public {
+        _pinIdentity();
+        _enableCreSatpam();
+        bytes memory report = abi.encode(
+            address(guardian), address(vault), uint8(1), address(adapterA), keccak256("plan"), CHAIN, block.timestamp
+        );
+        _deliver(report);
+        assertEq(adapterA.totalAssets(), 0);
+    }
+
     function test_SupportsTheReceiverInterface() public view {
         assertTrue(guardian.supportsInterface(0x805f2132)); // IReceiver
         assertTrue(guardian.supportsInterface(0x01ffc9a7)); // ERC-165
