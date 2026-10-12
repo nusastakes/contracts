@@ -13,7 +13,7 @@ function can send city funds anywhere except to that city's own adapters or to a
 | Kontrak | Fungsi |
 | --- | --- |
 | `CityFactory` | Siapa saja mendirikan kota (`createCity`); platform hanya mengatur daftar implementasi adapter, parameter adapter, dan batas (fee maksimum, potongan platform, batas deposit). |
-| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci wakil (`setDeputy`) hanya boleh `rebalance`; `depositWithPermit` untuk deposit tanpa gas lewat relayer; `evacuate` oleh guardian hanya ke idle. |
+| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci sesi (`setSessionKey`, kunci kedua milik walikota untuk kerja harian) hanya boleh `rebalance`; `depositWithPermit` untuk deposit tanpa gas lewat relayer; `evacuate` oleh guardian hanya ke idle. |
 | `CityGuardian` | Izin agen AI per kota (Satpam, Analis, Humas), usulan Analis yang harus disetujui walikota, dan penerima laporan Chainlink CRE untuk evakuasi. |
 | `CreConsumer` | Pemeriksaan tambahan untuk laporan CRE: target, chain selector, dan identitas workflow harus dikunci sebelum laporan diterima. |
 | `adapters/ERC4626Adapter` | Adapter generik ke vault ERC-4626 mana pun yang asetnya sama (diuji ke Morpho di fork mainnet). |
@@ -59,7 +59,7 @@ Ditemukan oleh tinjauan independen dan sengaja belum diubah:
 - **Satu adapter rusak mengunci kota** (F-02): bila `totalAssets()` sebuah adapter revert, semua fungsi yang menghitung
   harga share ikut revert, dan daftar adapter tidak bisa diubah setelah kota dibuat. Ada placeholder `TODO(F-02)` di
   `CityVault.totalAssets()`. Mitigasi sekarang: adapter hanya dari daftar platform dan bukti mainnet dibatasi 200 AUSD.
-- **Batas pergeseran per panggilan, bukan kumulatif** (F-05): `maxShiftBps` dan batas kunci wakil berlaku per
+- **Batas pergeseran per panggilan, bukan kumulatif** (F-05): `maxShiftBps` dan batas kunci sesi berlaku per
   panggilan `rebalance`, jadi beberapa panggilan berurutan bisa memindahkan lebih banyak. Dana tetap hanya bergerak
   antara idle dan adapter kota itu.
 - `maxWithdraw`/`maxRedeem` tidak memperhitungkan likuiditas adapter; `setFee` berlaku seketika sampai batas factory;

@@ -37,9 +37,9 @@ contract CityVault is ERC4626, ReentrancyGuard {
     uint16 public maxShiftBps = 5000;
     uint256 public highWaterMark;
 
-    address public deputy;
-    uint64 public deputyExpiry;
-    uint16 public deputyMaxShiftBps;
+    address public sessionKey;
+    uint64 public sessionKeyExpiry;
+    uint16 public sessionKeyMaxShiftBps;
 
     mapping(address => bool) public isAdapter;
     address[] private _adapters;
@@ -49,7 +49,7 @@ contract CityVault is ERC4626, ReentrancyGuard {
         address indexed caller, address indexed from, address indexed to, uint256 amount, bytes32 planHash
     );
     event Evacuated(address indexed adapter, uint256 amount);
-    event DeputySet(address indexed deputy, uint64 expiry, uint16 maxShiftBps);
+    event SessionKeySet(address indexed sessionKey, uint64 expiry, uint16 maxShiftBps);
     event FeeAccrued(uint256 feeShares, uint256 platformShares, uint256 mayorShares, uint256 newHighWaterMark);
     event FeeSet(uint16 oldFeeBps, uint16 newFeeBps);
     event MaxShiftSet(uint16 maxShiftBps);
@@ -325,14 +325,14 @@ contract CityVault is ERC4626, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------------------
 
     /// @notice Moves assets between idle (`address(0)`) and this city's adapters.
-    /// @dev Callable by the mayor, or by the deputy while their key has not expired. A single call may move at most
-    /// `maxShiftBps` of total assets (the lower of that and the deputy's own limit for the deputy).
+    /// @dev Callable by the mayor, or by the session key while it has not expired. A single call may move at most
+    /// `maxShiftBps` of total assets (the lower of that and the session key's own limit for the session key).
     function rebalance(address from, address to, uint256 amount, bytes32 planHash) external nonReentrant {
         uint256 limit;
         if (msg.sender == mayor) {
             limit = maxShiftBps;
-        } else if (_isActiveDeputy(msg.sender)) {
-            limit = Math.min(maxShiftBps, deputyMaxShiftBps);
+        } else if (_isActiveSessionKey(msg.sender)) {
+            limit = Math.min(maxShiftBps, sessionKeyMaxShiftBps);
         } else {
             revert NotAuthorizedToRebalance();
         }
@@ -357,8 +357,8 @@ contract CityVault is ERC4626, ReentrancyGuard {
         emit Evacuated(adapter, withdrawn);
     }
 
-    function _isActiveDeputy(address account) internal view returns (bool) {
-        return account != address(0) && account == deputy && block.timestamp < deputyExpiry;
+    function _isActiveSessionKey(address account) internal view returns (bool) {
+        return account != address(0) && account == sessionKey && block.timestamp < sessionKeyExpiry;
     }
 
     function _rebalance(address caller, address from, address to, uint256 amount, bytes32 planHash, uint256 limit)
@@ -397,22 +397,23 @@ contract CityVault is ERC4626, ReentrancyGuard {
     // Mayor settings
     // ---------------------------------------------------------------------------------------------------------
 
-    /// @notice Registers one deputy key that may only call `rebalance`, within its own limit, until `expiry`.
-    /// Pass `address(0)` to remove the deputy.
-    function setDeputy(address newDeputy, uint64 expiry, uint16 shiftBps) external onlyMayor {
+    /// @notice Registers one session key (a second key of the mayor for day-to-day work, kept in the web session
+    /// instead of the main key) that may only call `rebalance`, within its own limit, until `expiry`. Pass
+    /// `address(0)` to remove it.
+    function setSessionKey(address newSessionKey, uint64 expiry, uint16 shiftBps) external onlyMayor {
         if (shiftBps > BPS) revert BpsOutOfRange(shiftBps);
-        if (newDeputy == address(0)) {
-            deputy = address(0);
-            deputyExpiry = 0;
-            deputyMaxShiftBps = 0;
-            emit DeputySet(address(0), 0, 0);
+        if (newSessionKey == address(0)) {
+            sessionKey = address(0);
+            sessionKeyExpiry = 0;
+            sessionKeyMaxShiftBps = 0;
+            emit SessionKeySet(address(0), 0, 0);
             return;
         }
         if (expiry <= block.timestamp) revert ExpiryInPast(expiry);
-        deputy = newDeputy;
-        deputyExpiry = expiry;
-        deputyMaxShiftBps = shiftBps;
-        emit DeputySet(newDeputy, expiry, shiftBps);
+        sessionKey = newSessionKey;
+        sessionKeyExpiry = expiry;
+        sessionKeyMaxShiftBps = shiftBps;
+        emit SessionKeySet(newSessionKey, expiry, shiftBps);
     }
 
     /// @notice Changes the fee. Pending fee is crystallised at the old rate first, and the new rate is capped by

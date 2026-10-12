@@ -158,7 +158,7 @@ contract CityGuardianTest is CreBase {
         vm.prank(analyst);
         uint256 id = guardian.propose(address(vault), address(0), address(adapterA), 300 * UNIT, PLAN);
 
-        address[3] memory callers = [analyst, bob, deputy];
+        address[3] memory callers = [analyst, bob, sessionKey];
         for (uint256 i; i < callers.length; ++i) {
             vm.prank(callers[i]);
             vm.expectRevert(abi.encodeWithSelector(CityGuardian.NotMayor.selector, address(vault), callers[i]));
@@ -273,7 +273,7 @@ contract CityGuardianTest is CreBase {
         vm.expectRevert(CityVault.NotMayor.selector);
         vault.setFee(0);
         vm.expectRevert(CityVault.NotMayor.selector);
-        vault.setDeputy(deputy, uint64(block.timestamp + 1 days), 10_000);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp + 1 days), 10_000);
         vm.stopPrank();
     }
 

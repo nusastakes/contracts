@@ -13,7 +13,7 @@ contract CityVaultTest is BaseTest {
         address indexed caller, address indexed from, address indexed to, uint256 amount, bytes32 planHash
     );
     event Evacuated(address indexed adapter, uint256 amount);
-    event DeputySet(address indexed deputy, uint64 expiry, uint16 maxShiftBps);
+    event SessionKeySet(address indexed sessionKey, uint64 expiry, uint16 maxShiftBps);
     event PlanKeyRevealed(bytes32 indexed entryId, bytes32 key);
 
     // ------------------------------------------------------------------ 1. deposit and redeem
@@ -274,7 +274,7 @@ contract CityVaultTest is BaseTest {
         vault.rebalance(address(0), address(adapterB), 501 * UNIT, bytes32(0));
     }
 
-    function test_OnlyMayorOrDeputyMayRebalance() public {
+    function test_OnlyMayorOrSessionKeyMayRebalance() public {
         _deposit(alice, 1000 * UNIT);
         vm.prank(alice);
         vm.expectRevert(CityVault.NotAuthorizedToRebalance.selector);
@@ -294,64 +294,64 @@ contract CityVaultTest is BaseTest {
         assertEq(asset.balanceOf(mayor), 0);
     }
 
-    // ------------------------------------------------------------------ 5. deputy
+    // ------------------------------------------------------------------ 5. sessionKey
 
-    function _setDeputy(uint64 expiry, uint16 shiftBps) internal {
+    function _setSessionKey(uint64 expiry, uint16 shiftBps) internal {
         vm.prank(mayor);
-        vault.setDeputy(deputy, expiry, shiftBps);
+        vault.setSessionKey(sessionKey, expiry, shiftBps);
     }
 
-    function test_DeputyCanRebalanceWithinOwnLimit() public {
+    function test_SessionKeyCanRebalanceWithinOwnLimit() public {
         _deposit(alice, 1000 * UNIT);
-        _setDeputy(uint64(block.timestamp + 1 days), 2000);
+        _setSessionKey(uint64(block.timestamp + 1 days), 2000);
 
-        vm.prank(deputy);
-        vault.rebalance(address(0), address(adapterA), 200 * UNIT, keccak256("deputy"));
+        vm.prank(sessionKey);
+        vault.rebalance(address(0), address(adapterA), 200 * UNIT, keccak256("sessionKey"));
         assertEq(adapterA.totalAssets(), 200 * UNIT);
 
-        vm.prank(deputy);
+        vm.prank(sessionKey);
         vm.expectRevert(abi.encodeWithSelector(CityVault.ShiftTooHigh.selector, 200 * UNIT + 1, 200 * UNIT));
         vault.rebalance(address(0), address(adapterA), 200 * UNIT + 1, bytes32(0));
     }
 
-    function test_DeputyLimitIsCappedByMayorMaxShift() public {
+    function test_SessionKeyLimitIsCappedByMayorMaxShift() public {
         _deposit(alice, 1000 * UNIT);
         vm.startPrank(mayor);
         vault.setMaxShift(1000);
-        vault.setDeputy(deputy, uint64(block.timestamp + 1 days), 9000);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp + 1 days), 9000);
         vm.stopPrank();
 
-        vm.prank(deputy);
+        vm.prank(sessionKey);
         vm.expectRevert(abi.encodeWithSelector(CityVault.ShiftTooHigh.selector, 100 * UNIT + 1, 100 * UNIT));
         vault.rebalance(address(0), address(adapterA), 100 * UNIT + 1, bytes32(0));
     }
 
-    function test_DeputyFailsAfterExpiry() public {
+    function test_SessionKeyFailsAfterExpiry() public {
         _deposit(alice, 1000 * UNIT);
         uint64 expiry = uint64(block.timestamp + 1 hours);
-        _setDeputy(expiry, 5000);
+        _setSessionKey(expiry, 5000);
 
         vm.warp(expiry - 1);
-        vm.prank(deputy);
+        vm.prank(sessionKey);
         vault.rebalance(address(0), address(adapterA), 100 * UNIT, bytes32(0));
 
         vm.warp(expiry);
-        vm.prank(deputy);
+        vm.prank(sessionKey);
         vm.expectRevert(CityVault.NotAuthorizedToRebalance.selector);
         vault.rebalance(address(0), address(adapterA), 100 * UNIT, bytes32(0));
     }
 
-    function test_DeputyCannotCallAnythingExceptRebalance() public {
+    function test_SessionKeyCannotCallAnythingExceptRebalance() public {
         _deposit(alice, 1000 * UNIT);
-        _setDeputy(uint64(block.timestamp + 1 days), 5000);
+        _setSessionKey(uint64(block.timestamp + 1 days), 5000);
 
-        vm.startPrank(deputy);
+        vm.startPrank(sessionKey);
         vm.expectRevert(CityVault.NotMayor.selector);
         vault.setFee(0);
         vm.expectRevert(CityVault.NotMayor.selector);
         vault.setMaxShift(10_000);
         vm.expectRevert(CityVault.NotMayor.selector);
-        vault.setDeputy(deputy, uint64(block.timestamp + 10 days), 10_000);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp + 10 days), 10_000);
         vm.expectRevert(CityVault.NotMayor.selector);
         vault.revealPlanKey(bytes32(uint256(1)), bytes32(uint256(2)));
         vm.expectRevert(CityVault.NotGuardian.selector);
@@ -361,43 +361,45 @@ contract CityVaultTest is BaseTest {
         vm.stopPrank();
     }
 
-    function test_DeputyCannotWithdrawOtherPeoplesShares() public {
+    function test_SessionKeyCannotWithdrawOtherPeoplesShares() public {
         uint256 shares = _deposit(alice, 1000 * UNIT);
-        _setDeputy(uint64(block.timestamp + 1 days), 5000);
+        _setSessionKey(uint64(block.timestamp + 1 days), 5000);
 
-        vm.startPrank(deputy);
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, deputy, 0, shares));
-        vault.redeem(shares, deputy, alice);
+        vm.startPrank(sessionKey);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, sessionKey, 0, shares));
+        vault.redeem(shares, sessionKey, alice);
         uint256 sharesFor1 = vault.previewWithdraw(1);
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, deputy, 0, sharesFor1));
-        vault.withdraw(1, deputy, alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, sessionKey, 0, sharesFor1)
+        );
+        vault.withdraw(1, sessionKey, alice);
         vm.stopPrank();
-        assertEq(asset.balanceOf(deputy), 0);
+        assertEq(asset.balanceOf(sessionKey), 0);
     }
 
-    function test_SetDeputyValidationAndRemoval() public {
+    function test_SetSessionKeyValidationAndRemoval() public {
         vm.startPrank(mayor);
         vm.expectRevert(abi.encodeWithSelector(CityVault.ExpiryInPast.selector, uint64(block.timestamp)));
-        vault.setDeputy(deputy, uint64(block.timestamp), 1000);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp), 1000);
         vm.expectRevert(abi.encodeWithSelector(CityVault.BpsOutOfRange.selector, uint16(10_001)));
-        vault.setDeputy(deputy, uint64(block.timestamp + 1 days), 10_001);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp + 1 days), 10_001);
 
         vm.expectEmit(true, false, false, true);
-        emit DeputySet(deputy, uint64(block.timestamp + 1 days), 1000);
-        vault.setDeputy(deputy, uint64(block.timestamp + 1 days), 1000);
-        assertEq(vault.deputy(), deputy);
+        emit SessionKeySet(sessionKey, uint64(block.timestamp + 1 days), 1000);
+        vault.setSessionKey(sessionKey, uint64(block.timestamp + 1 days), 1000);
+        assertEq(vault.sessionKey(), sessionKey);
 
-        vault.setDeputy(address(0), 0, 0);
+        vault.setSessionKey(address(0), 0, 0);
         vm.stopPrank();
-        assertEq(vault.deputy(), address(0));
+        assertEq(vault.sessionKey(), address(0));
 
         _deposit(alice, 1000 * UNIT);
-        vm.prank(deputy);
+        vm.prank(sessionKey);
         vm.expectRevert(CityVault.NotAuthorizedToRebalance.selector);
         vault.rebalance(address(0), address(adapterA), 1, bytes32(0));
     }
 
-    function test_ZeroAddressIsNeverADeputy() public {
+    function test_ZeroAddressIsNeverASessionKey() public {
         _deposit(alice, 1000 * UNIT);
         vm.prank(address(0));
         vm.expectRevert(CityVault.NotAuthorizedToRebalance.selector);

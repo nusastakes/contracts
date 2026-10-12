@@ -28,7 +28,7 @@ abstract contract BaseTest is Test {
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
     address internal relayer = makeAddr("relayer");
-    address internal deputy = makeAddr("deputy");
+    address internal sessionKey = makeAddr("sessionKey");
     address internal alice;
     uint256 internal alicePk;
 
