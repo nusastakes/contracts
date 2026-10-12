@@ -52,6 +52,32 @@ batas 200 AUSD, melakukan `rebalance`, lalu menarik semuanya (Morpho membulatkan
 jadi 200 AUSD menjadi 199,999998 di dalam vault; penarikan penuh memakai `redeem`). Bunga 30 hari di fork hanya
 simulasi waktu (`vm.warp`), bukan yield nyata. `forge test` tanpa RPC melewati tes ini.
 
+## Deploy ke Monad testnet
+
+`script/Deploy.s.sol` men-deploy `CityGuardian`, `CityFactory`, `ApyFeed`, `YieldReserve`, dan implementasi
+`MirrorYieldAdapter`, lalu menyambungkannya (adapter diizinkan, parameter sumber APY diset platform). Satu-satunya
+rahasia adalah `DEPLOYER_PRIVATE_KEY`, dibaca dari environment, bukan dari file di repo.
+
+```
+export PATH="$PATH:$HOME/.foundry/bin"
+cp ../.env.example ../.env          # isi DEPLOYER_PRIVATE_KEY (dan PLATFORM_TREASURY bila perlu); .env tidak ikut git
+set -a; . ../.env; set +a
+
+forge script script/Deploy.s.sol --rpc-url $MONAD_TESTNET_RPC                 # simulasi, tidak mengirim apa pun
+forge script script/Deploy.s.sol --rpc-url $MONAD_TESTNET_RPC --broadcast     # deploy sungguhan
+
+./script/fund-reserve.sh <alamat YieldReserve> 3                              # isi reserve dari faucet AUSD (10.000 AUSD per tetes)
+```
+
+Pengaturan bawaan (semua bisa diganti lewat environment): aset AUSD testnet
+`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`, forwarder CRE produksi `0xF8344CFd5c43616a4366C34E3EEE75af79a74482`,
+chain selector `2183018362218727504`, batas deposit 1.000.000 AUSD per kota (`DEPOSIT_CAP`), jatah yield simulasi
+1.000 AUSD per kota (`YIELD_QUOTA_PER_CITY`), `APY_UPDATER` dan `PLATFORM_TREASURY` sama dengan deployer. Laporan CRE
+ditolak sampai pemilik mengunci `expectedAuthor` atau `expectedWorkflowId` pada guardian dan feed.
+
+Monad menagih gas limit, bukan gas yang terpakai, dan base fee testnet sekitar 100 gwei; simulasi memperkirakan
+sekitar 12,3 juta gas untuk seluruh skrip. Wallet yang baru diisi butuh beberapa detik sebelum bisa mengirim transaksi.
+
 ## Batasan yang diketahui
 
 Ditemukan oleh tinjauan independen dan sengaja belum diubah:
