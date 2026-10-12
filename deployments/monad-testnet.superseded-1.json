@@ -50,5 +50,6 @@
       "gasUsed": 897574,
       "explorer": "https://testnet.monadvision.com/address/0xdB96a6a8B70034c0Ef24170d3B4d5E2320FaeA60"
     }
-  }
+  },
+  "status": "SUPERSEDED on 2026-10-13: redeployed with share permit (redeemWithPermit), onchain city metadata and CityFactory.cityInfos. Do not use these addresses."
 }

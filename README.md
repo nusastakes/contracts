@@ -12,8 +12,8 @@ function can send city funds anywhere except to that city's own adapters or to a
 
 | Kontrak | Fungsi |
 | --- | --- |
-| `CityFactory` | Siapa saja mendirikan kota (`createCity`); platform hanya mengatur daftar implementasi adapter, parameter adapter, dan batas (fee maksimum, potongan platform, batas deposit). |
-| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci sesi (`setSessionKey`, kunci kedua milik walikota untuk kerja harian) hanya boleh `rebalance`; `depositWithPermit` untuk deposit tanpa gas lewat relayer; `evacuate` oleh guardian hanya ke idle. |
+| `CityFactory` | Siapa saja mendirikan kota (`createCity`); `cityInfos(start, count)` mengembalikan data semua kota dalam satu panggilan; platform hanya mengatur daftar implementasi adapter, parameter adapter, dan batas (fee maksimum, potongan platform, batas deposit). |
+| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci sesi (`setSessionKey`, kunci kedua milik walikota untuk kerja harian) hanya boleh `rebalance`; `depositWithPermit` dan `redeemWithPermit` (share vault punya `permit`) untuk setor dan tarik tanpa gas lewat relayer; metadata kota (`community`, `mapURI`, `createdAt`) tersimpan onchain; `evacuate` oleh guardian hanya ke idle. |
 | `CityGuardian` | Izin agen AI per kota (Satpam, Analis, Humas), usulan Analis yang harus disetujui walikota, dan penerima laporan Chainlink CRE untuk evakuasi. |
 | `CreConsumer` | Pemeriksaan tambahan untuk laporan CRE: target, chain selector, dan identitas workflow harus dikunci sebelum laporan diterima. |
 | `adapters/ERC4626Adapter` | Adapter generik ke vault ERC-4626 mana pun yang asetnya sama (diuji ke Morpho di fork mainnet). |
@@ -54,20 +54,22 @@ simulasi waktu (`vm.warp`), bukan yield nyata. `forge test` tanpa RPC melewati t
 
 ## Alamat deploy (Monad testnet, chainId 10143)
 
-Di-deploy 13 Okt 2026 dengan `script/Deploy.s.sol`; kelima kontrak terverifikasi `exact_match` di Sourcify (MonadVision).
-Daftar lengkap dengan hash transaksi dan blok: `deployments/monad-testnet.json`.
+Deploy ke-2, 13 Okt 2026, dengan `script/Deploy.s.sol`; kelima kontrak terverifikasi `exact_match` di Sourcify (MonadVision).
+Daftar lengkap dengan hash transaksi dan blok: `deployments/monad-testnet.json`. Deploy pertama
+(`deployments/monad-testnet.superseded-1.json`) sudah digantikan karena kontrak berubah; jangan dipakai.
 
 | Kontrak | Alamat |
 | --- | --- |
-| `CityFactory` | [`0xA54D964a4bF13be1E5AF05D5c7290f275f13B24C`](https://testnet.monadvision.com/address/0xA54D964a4bF13be1E5AF05D5c7290f275f13B24C) |
-| `CityGuardian` | [`0x2243360Be1044344aed5B859f3998EE7bf17D0EE`](https://testnet.monadvision.com/address/0x2243360Be1044344aed5B859f3998EE7bf17D0EE) |
-| `ApyFeed` | [`0xaA223d6F2047df4D4f47626f65e6873419524fe6`](https://testnet.monadvision.com/address/0xaA223d6F2047df4D4f47626f65e6873419524fe6) |
-| `YieldReserve` | [`0x57ae2F94571858b7e3949fc5dAfFdf4f8A6D8e14`](https://testnet.monadvision.com/address/0x57ae2F94571858b7e3949fc5dAfFdf4f8A6D8e14) |
-| `MirrorYieldAdapter` (implementasi) | [`0xdB96a6a8B70034c0Ef24170d3B4d5E2320FaeA60`](https://testnet.monadvision.com/address/0xdB96a6a8B70034c0Ef24170d3B4d5E2320FaeA60) |
+| `CityFactory` | [`0x6765F0C80F6a7D5EC7Af120d12e81628F641508E`](https://testnet.monadvision.com/address/0x6765F0C80F6a7D5EC7Af120d12e81628F641508E) |
+| `CityGuardian` | [`0x083899bEE8138E5f951db568926393FDb1F418A2`](https://testnet.monadvision.com/address/0x083899bEE8138E5f951db568926393FDb1F418A2) |
+| `ApyFeed` | [`0x707A675DDc976B0E9C6B520Dbd0326204F30d540`](https://testnet.monadvision.com/address/0x707A675DDc976B0E9C6B520Dbd0326204F30d540) |
+| `YieldReserve` | [`0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1`](https://testnet.monadvision.com/address/0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1) |
+| `MirrorYieldAdapter` (implementasi) | [`0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690`](https://testnet.monadvision.com/address/0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690) |
 | AUSD testnet (bukan milik kami) | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
 
 `YieldReserve` berisi 30.000 AUSD testnet dari faucet publik. Yield yang dibayarkan adalah **simulasi** yang mengikuti
-APY vault AUSD di mainnet; belum ada keeper yang menulis APY ke `ApyFeed`, jadi APY masih 0.
+APY vault AUSD di mainnet; keeper di repo `relayer` menulis APY ke `ApyFeed` (saat ini sekitar 128 bps).
+ABI JSON semua kontrak ada di `abi/` (dibuat ulang dengan `script/export-abi.sh`).
 
 ## Deploy ke Monad testnet
 

@@ -1,0 +1,56 @@
+{
+  "network": "Monad testnet",
+  "chainId": 10143,
+  "deployer": "0x6A9D40CA892972d6E6cf1dDF21Ea20F2bF3c1002",
+  "deployedAt": "2026-10-13 (WIB)",
+  "script": "script/Deploy.s.sol",
+  "version": 2,
+  "previousDeployment": "monad-testnet.superseded-1.json",
+  "verification": "Sourcify (https://sourcify-api-monad.blockvision.org), see status below",
+  "asset": {
+    "name": "AUSD (testnet)",
+    "address": "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC",
+    "decimals": 6
+  },
+  "creForwarder": "0xF8344CFd5c43616a4366C34E3EEE75af79a74482",
+  "chainSelector": "2183018362218727504",
+  "sourceId": "0x71809e1e29dc09210f61029b6e5b4f037fb332bdf7caa16cf9362c78c500926d",
+  "sourceLabel": "Morpho Grove x Steakhouse High Yield AUSD (mainnet)",
+  "contracts": {
+    "CityGuardian": {
+      "address": "0x083899bEE8138E5f951db568926393FDb1F418A2",
+      "txHash": "0x31cceebdae83e5945a61f7402064582fffd3ef477e64c459b4737aae42208116",
+      "block": 70461932,
+      "gasUsed": 2605110,
+      "explorer": "https://testnet.monadvision.com/address/0x083899bEE8138E5f951db568926393FDb1F418A2"
+    },
+    "CityFactory": {
+      "address": "0x6765F0C80F6a7D5EC7Af120d12e81628F641508E",
+      "txHash": "0xef016d3fc1eafdfb46f925a09227c6b216601e937eb0803f02d720ce791c2d6d",
+      "block": 70461935,
+      "gasUsed": 7467410,
+      "explorer": "https://testnet.monadvision.com/address/0x6765F0C80F6a7D5EC7Af120d12e81628F641508E"
+    },
+    "ApyFeed": {
+      "address": "0x707A675DDc976B0E9C6B520Dbd0326204F30d540",
+      "txHash": "0xc9658ac26dfaf55b8717b3244a80be85fa0cc065025fd72d26f99866a85b6651",
+      "block": 70461937,
+      "gasUsed": 2005953,
+      "explorer": "https://testnet.monadvision.com/address/0x707A675DDc976B0E9C6B520Dbd0326204F30d540"
+    },
+    "YieldReserve": {
+      "address": "0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1",
+      "txHash": "0xa18acb076e39b839c2da42dc6279f0d9e3f70e4d2d2a737e87c768efdf3ebe72",
+      "block": 70461940,
+      "gasUsed": 890189,
+      "explorer": "https://testnet.monadvision.com/address/0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1"
+    },
+    "MirrorYieldAdapter": {
+      "address": "0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690",
+      "txHash": "0x7d298b786ba63073f0e6ce18eff2e3f4e014a12e7c57db86c68d0c51c2d39c81",
+      "block": 70461948,
+      "gasUsed": 897574,
+      "explorer": "https://testnet.monadvision.com/address/0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690"
+    }
+  }
+}
