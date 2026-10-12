@@ -52,6 +52,23 @@ batas 200 AUSD, melakukan `rebalance`, lalu menarik semuanya (Morpho membulatkan
 jadi 200 AUSD menjadi 199,999998 di dalam vault; penarikan penuh memakai `redeem`). Bunga 30 hari di fork hanya
 simulasi waktu (`vm.warp`), bukan yield nyata. `forge test` tanpa RPC melewati tes ini.
 
+## Alamat deploy (Monad testnet, chainId 10143)
+
+Di-deploy 13 Okt 2026 dengan `script/Deploy.s.sol`; kelima kontrak terverifikasi `exact_match` di Sourcify (MonadVision).
+Daftar lengkap dengan hash transaksi dan blok: `deployments/monad-testnet.json`.
+
+| Kontrak | Alamat |
+| --- | --- |
+| `CityFactory` | [`0xA54D964a4bF13be1E5AF05D5c7290f275f13B24C`](https://testnet.monadvision.com/address/0xA54D964a4bF13be1E5AF05D5c7290f275f13B24C) |
+| `CityGuardian` | [`0x2243360Be1044344aed5B859f3998EE7bf17D0EE`](https://testnet.monadvision.com/address/0x2243360Be1044344aed5B859f3998EE7bf17D0EE) |
+| `ApyFeed` | [`0xaA223d6F2047df4D4f47626f65e6873419524fe6`](https://testnet.monadvision.com/address/0xaA223d6F2047df4D4f47626f65e6873419524fe6) |
+| `YieldReserve` | [`0x57ae2F94571858b7e3949fc5dAfFdf4f8A6D8e14`](https://testnet.monadvision.com/address/0x57ae2F94571858b7e3949fc5dAfFdf4f8A6D8e14) |
+| `MirrorYieldAdapter` (implementasi) | [`0xdB96a6a8B70034c0Ef24170d3B4d5E2320FaeA60`](https://testnet.monadvision.com/address/0xdB96a6a8B70034c0Ef24170d3B4d5E2320FaeA60) |
+| AUSD testnet (bukan milik kami) | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
+
+`YieldReserve` berisi 30.000 AUSD testnet dari faucet publik. Yield yang dibayarkan adalah **simulasi** yang mengikuti
+APY vault AUSD di mainnet; belum ada keeper yang menulis APY ke `ApyFeed`, jadi APY masih 0.
+
 ## Deploy ke Monad testnet
 
 `script/Deploy.s.sol` men-deploy `CityGuardian`, `CityFactory`, `ApyFeed`, `YieldReserve`, dan implementasi
