@@ -74,6 +74,20 @@ abstract contract BaseTest is Test {
         vault.rebalance(from, to, amount, keccak256("plan"));
     }
 
+    /// @dev EIP-2612 permit over the city's SHARE token (domain = the vault itself), for `redeemWithPermit`.
+    function _signSharePermit(uint256 pk, address tokenOwner, address spender, uint256 value, uint256 deadline)
+        internal
+        view
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        bytes32 typeHash =
+            keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
+        bytes32 structHash =
+            keccak256(abi.encode(typeHash, tokenOwner, spender, value, vault.nonces(tokenOwner), deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash));
+        (v, r, s) = vm.sign(pk, digest);
+    }
+
     function _signPermit(uint256 pk, address tokenOwner, address spender, uint256 value, uint256 deadline)
         internal
         view

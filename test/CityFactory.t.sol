@@ -81,6 +81,43 @@ contract CityFactoryTest is BaseTest {
         factory.createCity("", "", 0, _impls(address(implA)), "");
     }
 
+    function test_CityInfosReturnsEverythingTheCityListNeedsInOneCall() public {
+        _deposit(alice, 1000 * UNIT);
+        vm.prank(mayor);
+        vault.rebalance(address(0), address(adapterA), 500 * UNIT, bytes32(0));
+        adapterA.addYield(100 * UNIT);
+        vm.prank(bob);
+        address second = factory.createCity("Jogja", "Web3 Jogja", 500, _impls(address(implA)), "ipfs://jogja");
+
+        CityFactory.CityInfo[] memory infos = factory.cityInfos(0, 10);
+        assertEq(infos.length, 2);
+        assertEq(infos[0].vault, address(vault));
+        assertEq(infos[0].mayor, mayor);
+        assertEq(infos[0].name, "Jakarta");
+        assertEq(infos[0].community, "ETHJKT");
+        assertEq(infos[0].mapURI, "ipfs://map");
+        assertEq(infos[0].feeBps, 1000);
+        assertEq(infos[0].totalAssets, 1100 * UNIT);
+        assertEq(infos[0].adapters.length, 2);
+        // net of the pending 10% fee: about 1.09x the starting price of 1e18
+        assertApproxEqAbs(infos[0].pricePerShare, 1.09e18, 1e12);
+
+        assertEq(infos[1].vault, second);
+        assertEq(infos[1].mayor, bob);
+        assertEq(infos[1].pricePerShare, 1e18, "a new city starts at exactly 1e18");
+        assertEq(infos[1].totalSupply, 0);
+    }
+
+    function test_CityInfosPaging() public {
+        _createCity(bob, 500);
+        _createCity(carol, 500);
+        assertEq(factory.cityInfos(1, 1).length, 1);
+        assertEq(factory.cityInfos(1, 1)[0].mayor, bob);
+        assertEq(factory.cityInfos(2, 100).length, 1, "three cities in total; count past the end is cut short");
+        assertEq(factory.cityInfos(3, 5).length, 0);
+        assertEq(factory.cityInfos(99, 5).length, 0, "start past the end is empty, not a revert");
+    }
+
     function test_CityWithNoAdaptersIsAllowed() public {
         address[] memory none = new address[](0);
         vm.prank(bob);

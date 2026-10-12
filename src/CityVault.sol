@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
@@ -16,7 +17,7 @@ import {ICityFactory} from "./interfaces/ICityFactory.sol";
 /// @notice One city = one ERC-4626 vault. Residents deposit the asset, the mayor spreads it over platform-approved
 /// adapters, and earns a fee only on profit above a per-city high-water mark. There is no function that sends assets
 /// anywhere except to an adapter owned by this city, or to a share holder who is withdrawing.
-contract CityVault is ERC4626, ReentrancyGuard {
+contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -32,6 +33,11 @@ contract CityVault is ERC4626, ReentrancyGuard {
     address public immutable guardian;
     /// @dev Share of the mayor's fee that goes to the platform treasury. Fixed when the city is created.
     uint16 public immutable platformCutBps;
+
+    /// @dev City metadata kept onchain so the UI can read it without scanning logs (public RPCs limit `eth_getLogs`).
+    string public community;
+    string public mapURI;
+    uint64 public immutable createdAt;
 
     uint16 public feeBps;
     uint16 public maxShiftBps = 5000;
@@ -83,24 +89,32 @@ contract CityVault is ERC4626, ReentrancyGuard {
         _;
     }
 
-    constructor(
-        IERC20 asset_,
-        string memory name_,
-        address factory_,
-        address mayor_,
-        address guardian_,
-        uint16 feeBps_,
-        uint16 platformCutBps_
-    ) ERC20(name_, "CITY") ERC4626(asset_) {
-        if (feeBps_ > ICityFactory(factory_).maxFeeBps()) {
-            revert FeeTooHigh(feeBps_, ICityFactory(factory_).maxFeeBps());
+    /// @dev Everything the factory passes in when it founds a city.
+    struct Init {
+        IERC20 asset;
+        string name;
+        string community;
+        string mapURI;
+        address factory;
+        address mayor;
+        address guardian;
+        uint16 feeBps;
+        uint16 platformCutBps;
+    }
+
+    constructor(Init memory p) ERC20(p.name, "CITY") ERC4626(p.asset) ERC20Permit(p.name) {
+        if (p.feeBps > ICityFactory(p.factory).maxFeeBps()) {
+            revert FeeTooHigh(p.feeBps, ICityFactory(p.factory).maxFeeBps());
         }
-        if (platformCutBps_ > BPS) revert BpsOutOfRange(platformCutBps_);
-        factory = factory_;
-        mayor = mayor_;
-        guardian = guardian_;
-        feeBps = feeBps_;
-        platformCutBps = platformCutBps_;
+        if (p.platformCutBps > BPS) revert BpsOutOfRange(p.platformCutBps);
+        factory = p.factory;
+        mayor = p.mayor;
+        guardian = p.guardian;
+        feeBps = p.feeBps;
+        platformCutBps = p.platformCutBps;
+        community = p.community;
+        mapURI = p.mapURI;
+        createdAt = uint64(block.timestamp);
         highWaterMark = PRICE_SCALE;
     }
 
@@ -132,6 +146,11 @@ contract CityVault is ERC4626, ReentrancyGuard {
 
     function _decimalsOffset() internal pure override returns (uint8) {
         return DECIMALS_OFFSET;
+    }
+
+    /// @dev Both ERC4626 and ERC20Permit sit on ERC20; ERC4626's version (asset decimals + offset) is the one we want.
+    function decimals() public view override(ERC20, ERC4626) returns (uint8) {
+        return ERC4626.decimals();
     }
 
     /// @notice Idle assets plus every adapter's position.
@@ -231,6 +250,29 @@ contract CityVault is ERC4626, ReentrancyGuard {
         if (assets > maxAssets) revert ERC4626ExceededMaxDeposit(owner, assets, maxAssets);
         shares = previewDeposit(assets);
         _deposit(owner, owner, assets, shares);
+    }
+
+    /// @notice Redeems `shares` that `owner` holds and pays the assets to `owner`, authorised by an EIP-2612 permit
+    /// over the share token that `owner` signed with this vault as spender. Anyone (the relayer) may send it and pays
+    /// the gas, so a resident can withdraw without holding MON. The assets can only go to `owner`.
+    /// @dev Same rules as `depositWithPermit`: if the permit fails, the call is only honoured when the sender is
+    /// `owner`, or the allowance equals `shares` (a front-run copy of the same permit). The allowance the permit set
+    /// is cleared afterwards.
+    function redeemWithPermit(address owner, uint256 shares, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        nonReentrant
+        returns (uint256 assets)
+    {
+        try this.permit(owner, address(this), shares, deadline, v, r, s) {}
+        catch {
+            if (msg.sender != owner && allowance(owner, address(this)) != shares) revert PermitNotHonoured(owner);
+        }
+        _accrueFee();
+        uint256 maxShares = maxRedeem(owner);
+        if (shares > maxShares) revert ERC4626ExceededMaxRedeem(owner, shares, maxShares);
+        assets = previewRedeem(shares);
+        _withdraw(owner, owner, owner, assets, shares);
+        _approve(owner, address(this), 0, false);
     }
 
     // ---------------------------------------------------------------------------------------------------------

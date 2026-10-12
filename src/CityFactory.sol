@@ -90,7 +90,19 @@ contract CityFactory is Ownable, ICityFactory {
             }
         }
 
-        CityVault city = new CityVault(IERC20(asset), name, address(this), msg.sender, guardian, feeBps, platformCutBps);
+        CityVault city = new CityVault(
+            CityVault.Init({
+                asset: IERC20(asset),
+                name: name,
+                community: community,
+                mapURI: mapURI,
+                factory: address(this),
+                mayor: msg.sender,
+                guardian: guardian,
+                feeBps: feeBps,
+                platformCutBps: platformCutBps
+            })
+        );
         vault = address(city);
 
         address[] memory clones = new address[](n);
@@ -119,6 +131,47 @@ contract CityFactory is Ownable, ICityFactory {
 
     function cities() external view returns (address[] memory) {
         return _cities;
+    }
+
+    /// @dev One city's data for the UI, read in a single call.
+    struct CityInfo {
+        address vault;
+        address mayor;
+        string name;
+        string community;
+        string mapURI;
+        uint16 feeBps;
+        uint64 createdAt;
+        uint256 totalAssets;
+        uint256 totalSupply;
+        uint256 pricePerShare;
+        address[] adapters;
+    }
+
+    /// @notice Up to `count` cities starting at `start`, with everything the city list and leaderboard need.
+    /// `pricePerShare` is net of the pending mayor fee and starts at 1e18, so `pricePerShare / 1e18 - 1` is the
+    /// return since the city was founded.
+    function cityInfos(uint256 start, uint256 count) external view returns (CityInfo[] memory infos) {
+        uint256 total = _cities.length;
+        if (start >= total) return infos;
+        uint256 end = start + count > total ? total : start + count;
+        infos = new CityInfo[](end - start);
+        for (uint256 i = start; i < end; ++i) {
+            CityVault v = CityVault(_cities[i]);
+            infos[i - start] = CityInfo({
+                vault: address(v),
+                mayor: v.mayor(),
+                name: v.name(),
+                community: v.community(),
+                mapURI: v.mapURI(),
+                feeBps: v.feeBps(),
+                createdAt: v.createdAt(),
+                totalAssets: v.totalAssets(),
+                totalSupply: v.totalSupply(),
+                pricePerShare: v.pricePerShare(),
+                adapters: v.adapters()
+            });
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------

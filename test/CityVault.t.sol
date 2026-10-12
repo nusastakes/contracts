@@ -529,6 +529,131 @@ contract CityVaultTest is BaseTest {
         vault.depositWithPermit(alice, 500 * UNIT, deadline, v, r, s);
     }
 
+    // ------------------------------------------------------------------ gasless withdrawal: redeemWithPermit
+
+    function test_RedeemWithPermitPaysTheOwnerNotTheRelayer() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), shares, deadline);
+
+        vm.prank(relayer);
+        uint256 assets = vault.redeemWithPermit(alice, shares, deadline, v, r, s);
+
+        assertEq(assets, 1000 * UNIT);
+        assertEq(asset.balanceOf(alice), 1000 * UNIT, "assets go to the signer");
+        assertEq(asset.balanceOf(relayer), 0);
+        assertEq(vault.balanceOf(alice), 0);
+        assertEq(vault.totalSupply(), 0);
+        assertEq(vault.allowance(alice, address(vault)), 0, "the permit allowance is cleared");
+        assertEq(vault.nonces(alice), 1);
+    }
+
+    function test_RedeemWithPermitCanBePartial() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        uint256 part = shares / 4;
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), part, deadline);
+        vm.prank(relayer);
+        vault.redeemWithPermit(alice, part, deadline, v, r, s);
+        assertEq(vault.balanceOf(alice), shares - part);
+        assertApproxEqAbs(asset.balanceOf(alice), 250 * UNIT, 1);
+    }
+
+    function test_RedeemWithPermitSucceedsIfThePermitWasFrontRun() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), shares, deadline);
+        vm.prank(bob);
+        vault.permit(alice, address(vault), shares, deadline, v, r, s);
+
+        vm.prank(relayer);
+        vault.redeemWithPermit(alice, shares, deadline, v, r, s);
+        assertEq(asset.balanceOf(alice), 1000 * UNIT);
+    }
+
+    function test_AStandingShareAllowanceCannotBeUsedToForceARedeem() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        vm.prank(alice);
+        vault.approve(address(vault), type(uint256).max);
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(CityVault.PermitNotHonoured.selector, alice));
+        vault.redeemWithPermit(alice, shares, block.timestamp + 1 hours, 27, bytes32(uint256(1)), bytes32(uint256(2)));
+        assertEq(vault.balanceOf(alice), shares, "nothing moved");
+    }
+
+    function test_RedeemWithPermitRejectsAWrongAmountAnExpiredPermitAndAReplay() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), shares / 2, deadline);
+
+        // signed for half, asked for all
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(CityVault.PermitNotHonoured.selector, alice));
+        vault.redeemWithPermit(alice, shares, deadline, v, r, s);
+
+        // valid use, then replay
+        vm.prank(relayer);
+        vault.redeemWithPermit(alice, shares / 2, deadline, v, r, s);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(CityVault.PermitNotHonoured.selector, alice));
+        vault.redeemWithPermit(alice, shares / 2, deadline, v, r, s);
+
+        // expired
+        (v, r, s) = _signSharePermit(alicePk, alice, address(vault), shares / 4, deadline);
+        vm.warp(deadline + 1);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(CityVault.PermitNotHonoured.selector, alice));
+        vault.redeemWithPermit(alice, shares / 4, deadline, v, r, s);
+    }
+
+    function test_RedeemWithPermitCannotRedeemMoreThanTheOwnerHolds() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), shares + 1, deadline);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxRedeem.selector, alice, shares + 1, shares));
+        vault.redeemWithPermit(alice, shares + 1, deadline, v, r, s);
+    }
+
+    function test_RedeemWithPermitPullsFromAdaptersAndPaysTheNetOfFeeAmount() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        _move(address(0), address(adapterA), 500 * UNIT);
+        adapterA.addYield(100 * UNIT);
+        uint256 previewed = vault.previewRedeem(shares);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = _signSharePermit(alicePk, alice, address(vault), shares, deadline);
+        vm.prank(relayer);
+        uint256 assets = vault.redeemWithPermit(alice, shares, deadline, v, r, s);
+        assertApproxEqAbs(assets, previewed, 2);
+        assertApproxEqAbs(assets, 1090 * UNIT, 5, "10% fee on the 100 profit stays in the city");
+    }
+
+    function test_TheOwnerCanCallRedeemWithPermitThemselves() public {
+        uint256 shares = _deposit(alice, 1000 * UNIT);
+        vm.prank(alice);
+        vault.redeemWithPermit(alice, shares, block.timestamp, 0, bytes32(0), bytes32(0));
+        assertEq(asset.balanceOf(alice), 1000 * UNIT);
+    }
+
+    function test_ShareTokenExposesAnEip712DomainNamedAfterTheCity() public view {
+        (, string memory name, string memory version, uint256 chainId, address verifying,,) = vault.eip712Domain();
+        assertEq(name, "Jakarta");
+        assertEq(version, "1");
+        assertEq(chainId, block.chainid);
+        assertEq(verifying, address(vault));
+        assertEq(vault.decimals(), 12);
+    }
+
+    // ------------------------------------------------------------------ onchain city metadata
+
+    function test_CityMetadataIsStoredOnchain() public view {
+        assertEq(vault.community(), "ETHJKT");
+        assertEq(vault.mapURI(), "ipfs://map");
+        assertEq(vault.createdAt(), uint64(block.timestamp));
+    }
+
     // ------------------------------------------------------------------ 9. withdrawals pull from adapters
 
     function test_WithdrawPullsFromAdaptersWhenIdleIsShort() public {
