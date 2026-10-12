@@ -135,6 +135,14 @@ contract CityVault is ERC4626, ReentrancyGuard {
     }
 
     /// @notice Idle assets plus every adapter's position.
+    /// @dev KNOWN LIMITATION (independent review F-02): this calls every adapter, and the adapter list cannot change
+    /// after `initAdapters`. If one adapter's `totalAssets()` reverts (for example the protocol underneath is paused),
+    /// every function that prices shares reverts too, so deposits, withdrawals, `rebalance` and `evacuate` of the
+    /// healthy adapters are stuck until the adapter works again.
+    /// TODO(F-02, placeholder, not implemented): a way to retire a broken adapter, for example a guardian-plus-mayor
+    /// `removeAdapter(address)` that skips the broken adapter's `totalAssets()` and writes its position off. It needs
+    /// a design decision first, because treating a failing adapter as worth 0 lets depositors buy shares cheaply.
+    /// Mitigation today: adapters come only from the platform allow-list, and the mainnet proof is capped at 200 AUSD.
     function totalAssets() public view override returns (uint256 total) {
         total = IERC20(asset()).balanceOf(address(this));
         uint256 n = _adapters.length;

@@ -52,6 +52,21 @@ batas 200 AUSD, melakukan `rebalance`, lalu menarik semuanya (Morpho membulatkan
 jadi 200 AUSD menjadi 199,999998 di dalam vault; penarikan penuh memakai `redeem`). Bunga 30 hari di fork hanya
 simulasi waktu (`vm.warp`), bukan yield nyata. `forge test` tanpa RPC melewati tes ini.
 
+## Batasan yang diketahui
+
+Ditemukan oleh tinjauan independen dan sengaja belum diubah:
+
+- **Satu adapter rusak mengunci kota** (F-02): bila `totalAssets()` sebuah adapter revert, semua fungsi yang menghitung
+  harga share ikut revert, dan daftar adapter tidak bisa diubah setelah kota dibuat. Ada placeholder `TODO(F-02)` di
+  `CityVault.totalAssets()`. Mitigasi sekarang: adapter hanya dari daftar platform dan bukti mainnet dibatasi 200 AUSD.
+- **Batas pergeseran per panggilan, bukan kumulatif** (F-05): `maxShiftBps` dan batas kunci wakil berlaku per
+  panggilan `rebalance`, jadi beberapa panggilan berurutan bisa memindahkan lebih banyak. Dana tetap hanya bergerak
+  antara idle dan adapter kota itu.
+- `maxWithdraw`/`maxRedeem` tidak memperhitungkan likuiditas adapter; `setFee` berlaku seketika sampai batas factory;
+  APY terakhir di `ApyFeed` terus berlaku bila keeper berhenti.
+
+Belum diaudit oleh manusia.
+
 ## Repo lain di organisasi
 
 - [nusastakes/web](https://github.com/nusastakes/web): antarmuka web dan kota 3D
