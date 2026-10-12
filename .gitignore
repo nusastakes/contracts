@@ -6,3 +6,4 @@ broadcast/*/31337/
 !.env.example
 .DS_Store
 broadcast/*/*/dry-run/
+broadcast/**/*.recovery.lock
