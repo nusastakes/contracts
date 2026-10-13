@@ -20,6 +20,15 @@ contract QuarantineHandler {
     address internal guardian;
     address[] internal actors;
     uint256 public steps;
+    /// @dev Set when the high-water mark fell although shares existed before and after a step. It may only fall to zero supply.
+    bool public hwmDropped;
+
+    modifier track() {
+        uint256 hwmBefore = vault.highWaterMark();
+        uint256 supplyBefore = vault.totalSupply();
+        _;
+        if (supplyBefore > 0 && vault.totalSupply() > 0 && vault.highWaterMark() < hwmBefore) hwmDropped = true;
+    }
 
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -39,7 +48,7 @@ contract QuarantineHandler {
         return seed % 2 == 0 ? adapterA : adapterB;
     }
 
-    function deposit(uint256 actorSeed, uint256 amount) external {
+    function deposit(uint256 actorSeed, uint256 amount) external track {
         steps++;
         address who = actors[actorSeed % actors.length];
         amount = amount % 1_000_000e6;
@@ -53,7 +62,7 @@ contract QuarantineHandler {
         vm.stopPrank();
     }
 
-    function redeem(uint256 actorSeed, uint256 fractionBps) external {
+    function redeem(uint256 actorSeed, uint256 fractionBps) external track {
         steps++;
         address who = actors[actorSeed % actors.length];
         uint256 shares = (vault.balanceOf(who) * (fractionBps % 10_001)) / 10_000;
@@ -62,39 +71,39 @@ contract QuarantineHandler {
         try vault.redeem(shares, who, who) {} catch {}
     }
 
-    function yieldIn(uint256 seed, uint256 amount) external {
+    function yieldIn(uint256 seed, uint256 amount) external track {
         steps++;
         _adapter(seed).addYield(amount % 100_000e6);
     }
 
-    function harvest() external {
+    function harvest() external track {
         steps++;
         try vault.harvestFee() {} catch {}
     }
 
-    function breakAdapter(uint256 seed, uint256 mode) external {
+    function breakAdapter(uint256 seed, uint256 mode) external track {
         steps++;
         // Revert or garbage return. Gas-burning adapters are covered by their own unit test: inside a random sequence they
         // make every pricing call burn the whole gas limit and the run takes forever.
         _adapter(seed).setMode(uint8(1 + (mode % 2)));
     }
 
-    function healAdapter(uint256 seed) external {
+    function healAdapter(uint256 seed) external track {
         steps++;
         _adapter(seed).setMode(0);
     }
 
-    function quarantine(uint256 seed) external {
+    function quarantine(uint256 seed) external track {
         steps++;
         try vault.quarantine{gas: 1_300_000}(address(_adapter(seed))) {} catch {}
     }
 
-    function restore(uint256 seed) external {
+    function restore(uint256 seed) external track {
         steps++;
         try vault.restoreAdapter(address(_adapter(seed))) {} catch {}
     }
 
-    function moveOut(uint256 seed, uint256 amount) external {
+    function moveOut(uint256 seed, uint256 amount) external track {
         steps++;
         MockYieldAdapter a = _adapter(seed);
         uint256 held = a.mode() == 0 || vault.quarantined(address(a)) ? _balanceOf(address(a)) : 0;
@@ -103,7 +112,7 @@ contract QuarantineHandler {
         try vault.rebalance(address(a), address(0), 1 + (amount % held), bytes32(0)) {} catch {}
     }
 
-    function moveIn(uint256 seed, uint256 amount) external {
+    function moveIn(uint256 seed, uint256 amount) external track {
         steps++;
         MockYieldAdapter a = _adapter(seed);
         uint256 idle = _balanceOf(address(vault));
@@ -112,7 +121,7 @@ contract QuarantineHandler {
         try vault.rebalance(address(0), address(a), 1 + (amount % idle), bytes32(0)) {} catch {}
     }
 
-    function evacuate(uint256 seed) external {
+    function evacuate(uint256 seed) external track {
         steps++;
         vm.prank(guardian);
         try vault.evacuate(address(_adapter(seed))) {} catch {}
@@ -156,6 +165,13 @@ contract CityVaultV3InvariantTest is StdInvariant, BaseTest {
             bool bFailing = adapterB.mode() != 0 && !vault.quarantined(address(adapterB));
             assertTrue(aFailing || bFailing, "pricing reverted with every adapter healthy or quarantined");
         }
+    }
+
+    /// From the third review: a restore or a quarantine must never lower the high-water mark while holders exist, or the
+    /// mayor and the treasury would be paid the same profit twice. (A mutant that re-based it was invisible to the accounting
+    /// invariant above.)
+    function invariant_HighWaterMarkNeverFallsWhileHoldersExist() public view {
+        assertFalse(handler.hwmDropped(), "the high-water mark fell while shares existed");
     }
 
     function invariant_QuarantineCountMatchesTheFlags() public view {
