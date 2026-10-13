@@ -33,7 +33,7 @@ contract MirrorYieldAdapter is AdapterBase {
 
     /// @dev params = abi.encode(bytes32 sourceId, address feed, address reserve). Enrolling with the reserve fails
     /// loudly if the reserve belongs to another factory, so a misconfigured platform cannot found a city.
-    function _init(bytes calldata params) internal override {
+    function _init(bytes calldata params) internal virtual override {
         (bytes32 sourceId_, address feed_, address reserve_) = abi.decode(params, (bytes32, address, address));
         sourceId = sourceId_;
         feed = ApyFeed(feed_);
