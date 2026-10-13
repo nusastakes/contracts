@@ -4,9 +4,9 @@
   "deployer": "0x6A9D40CA892972d6E6cf1dDF21Ea20F2bF3c1002",
   "deployedAt": "2026-10-13 (WIB)",
   "script": "script/Deploy.s.sol",
-  "version": 2,
-  "previousDeployment": "monad-testnet.superseded-1.json",
-  "verification": "Sourcify (https://sourcify-api-monad.blockvision.org), see status below",
+  "version": 3,
+  "previousDeployment": "monad-testnet.superseded-3.json (v3 revision 1: first deploy, replaced the same day after an independent review found a double-counting bug in the quarantine logic)",
+  "verification": "Sourcify (https://sourcify-api-monad.blockvision.org): all six exact_match",
   "asset": {
     "name": "AUSD (testnet)",
     "address": "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC",
@@ -14,43 +14,72 @@
   },
   "creForwarder": "0xF8344CFd5c43616a4366C34E3EEE75af79a74482",
   "chainSelector": "2183018362218727504",
+  "identityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+  "reputationRegistry": "0x8004B663056A597Dffe9eCcC1965A193B7388713",
   "sourceId": "0x71809e1e29dc09210f61029b6e5b4f037fb332bdf7caa16cf9362c78c500926d",
   "sourceLabel": "Morpho Grove x Steakhouse High Yield AUSD (mainnet)",
+  "apyUpdater": "0x674aF210d993E0CA608B3Cf1801C9BbE61664f10",
+  "marketplaceFeeBps": 500,
+  "capabilities": {
+    "nusastakes.city-staff.analis": "ANALIS",
+    "nusastakes.city-staff.humas": "HUMAS"
+  },
   "contracts": {
     "CityGuardian": {
-      "address": "0x083899bEE8138E5f951db568926393FDb1F418A2",
-      "txHash": "0x31cceebdae83e5945a61f7402064582fffd3ef477e64c459b4737aae42208116",
-      "block": 70461932,
-      "gasUsed": 2605110,
-      "explorer": "https://testnet.monadvision.com/address/0x083899bEE8138E5f951db568926393FDb1F418A2"
+      "address": "0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4",
+      "txHash": "0x22637a471e7002dbe241bccb96b6f747aa372d2494e0b4b9ed373f9b312ac99c",
+      "block": 70658262,
+      "gasUsed": 3104675,
+      "explorer": "https://testnet.monadvision.com/address/0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4"
     },
     "CityFactory": {
-      "address": "0x6765F0C80F6a7D5EC7Af120d12e81628F641508E",
-      "txHash": "0xef016d3fc1eafdfb46f925a09227c6b216601e937eb0803f02d720ce791c2d6d",
-      "block": 70461935,
-      "gasUsed": 7467410,
-      "explorer": "https://testnet.monadvision.com/address/0x6765F0C80F6a7D5EC7Af120d12e81628F641508E"
+      "address": "0x194C8c5d9B93bA108104652cAD50f938e9205607",
+      "txHash": "0x7cbe9e91bb19c8fddd73e8836cf11927f3652ab2d34273a02d6c715be9172597",
+      "block": 70658267,
+      "gasUsed": 7990802,
+      "explorer": "https://testnet.monadvision.com/address/0x194C8c5d9B93bA108104652cAD50f938e9205607"
     },
     "ApyFeed": {
-      "address": "0x707A675DDc976B0E9C6B520Dbd0326204F30d540",
-      "txHash": "0xc9658ac26dfaf55b8717b3244a80be85fa0cc065025fd72d26f99866a85b6651",
-      "block": 70461937,
+      "address": "0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0",
+      "txHash": "0x4ec73c914380dd2dfcae5e25bda2acb7d8efa4592ba2bdb2673f814875bc3b9f",
+      "block": 70658273,
       "gasUsed": 2005953,
-      "explorer": "https://testnet.monadvision.com/address/0x707A675DDc976B0E9C6B520Dbd0326204F30d540"
+      "explorer": "https://testnet.monadvision.com/address/0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0"
     },
     "YieldReserve": {
-      "address": "0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1",
-      "txHash": "0xa18acb076e39b839c2da42dc6279f0d9e3f70e4d2d2a737e87c768efdf3ebe72",
-      "block": 70461940,
+      "address": "0x50c9de41cE85F5F4c75047B43940fd2718bFd02c",
+      "txHash": "0x60d714992131cfb1a8c73b3dd3fc3b204159c90955aaa1f6dbf794808ac0813d",
+      "block": 70658278,
       "gasUsed": 890189,
-      "explorer": "https://testnet.monadvision.com/address/0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1"
+      "explorer": "https://testnet.monadvision.com/address/0x50c9de41cE85F5F4c75047B43940fd2718bFd02c"
     },
     "MirrorYieldAdapter": {
-      "address": "0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690",
-      "txHash": "0x7d298b786ba63073f0e6ce18eff2e3f4e014a12e7c57db86c68d0c51c2d39c81",
-      "block": 70461948,
+      "address": "0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e",
+      "txHash": "0xedcf6abdd750974f117f9223619ed0bda799b4658b8b7c87f5e1b89b01569ab3",
+      "block": 70658287,
       "gasUsed": 897574,
-      "explorer": "https://testnet.monadvision.com/address/0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690"
+      "explorer": "https://testnet.monadvision.com/address/0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e"
+    },
+    "AgentMarketplace": {
+      "address": "0x19EC26FBC8B00B2a670632BAd5f38120e27166f9",
+      "txHash": "0xefbb9a4eac1dad26262c82ed5523e69c0f02e682a519a92394796be7e07bf727",
+      "block": 70658291,
+      "gasUsed": 2818517,
+      "explorer": "https://testnet.monadvision.com/address/0x19EC26FBC8B00B2a670632BAd5f38120e27166f9"
     }
+  },
+  "revision": 2,
+  "seed": {
+    "demoCity": "0xF7d51c19e5f98b421b041Db0D6b7032f411B4e09",
+    "createCityTx": "0xac01ff808e823741a4a1e1ca5db864679f767d4ca19edea2c055d3f65dd8b5d2",
+    "styleTx": "0x13a61135635959b9833dd824ba8d6c1410f2070dd855dfcaa0d6effb41c3eb57",
+    "listings": {
+      "analis": "0",
+      "humas": "1",
+      "community": "2"
+    },
+    "hire_analis": "0x0fde9d17e616651e1eccad7b055fa63ed6a5050c9975228d83865c4a9fc9993b",
+    "hire_humas": "0x612295017756bcaa4fd30c9a26236f55e413d8520ed3fd9d1714a73465ee2b5e",
+    "hire_community": "0x727678b1b039f910f265c509e99238e3f3369679e34f039caa4d77e988d95c9f"
   }
 }

@@ -19,18 +19,28 @@ contract MockYieldAdapter is AdapterBase {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
     }
 
+    /// @dev When set, `withdraw` and `withdrawAll` revert while `totalAssets()` still works (a paused or illiquid protocol).
+    bool public failWithdraw;
+
+    function setFailWithdraw(bool value) external {
+        failWithdraw = value;
+    }
+
     function withdraw(uint256 assets) external onlyVault returns (uint256 withdrawn) {
+        require(!failWithdraw, "withdraw paused");
         uint256 balance = IERC20(asset).balanceOf(address(this));
         withdrawn = assets < balance ? assets : balance;
         IERC20(asset).safeTransfer(vault, withdrawn);
     }
 
     function withdrawAll() external onlyVault returns (uint256 withdrawn) {
+        require(!failWithdraw, "withdraw paused");
         withdrawn = IERC20(asset).balanceOf(address(this));
         IERC20(asset).safeTransfer(vault, withdrawn);
     }
 
-    /// @dev 0 = works, 1 = reverts, 2 = returns one byte (not a word), 3 = burns all the gas it is given.
+    /// @dev 0 = works, 1 = reverts, 2 = returns one byte (not a word), 3 = burns all the gas it is given,
+    /// 4 = works but costs a little over two million gas (more than the quarantine probe allows, less than the restore probe).
     uint8 public mode;
 
     function setMode(uint8 newMode) external {
@@ -48,6 +58,11 @@ contract MockYieldAdapter is AdapterBase {
         if (mode == 3) {
             assembly {
                 for {} 1 {} {}
+            }
+        }
+        if (mode == 4) {
+            assembly {
+                for { let i := 0 } lt(i, 70000) { i := add(i, 1) } { mstore(0x40, i) }
             }
         }
         return IERC20(asset).balanceOf(address(this));

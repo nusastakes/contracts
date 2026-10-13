@@ -145,10 +145,10 @@ contract AgentMarketplaceTest is Test {
     function test_OnlyTheControllerUpdatesAndAStrangerCannotTouchAListing() public {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.NotAgentController.selector, agentId, stranger));
-        market.update(listingId, 1, 1 days, false, "");
+        market.update(listingId, ANALIS, address(asset), 1, 1 days, false, "");
 
         vm.prank(seller);
-        market.update(listingId, uint128(50 * UNIT), 3 days, true, "new");
+        market.update(listingId, ANALIS, address(asset), uint128(50 * UNIT), 3 days, true, "new");
         AgentMarketplace.Listing memory l = market.getListing(listingId);
         assertEq(l.price, 50 * UNIT);
         assertEq(l.period, 3 days);
@@ -202,7 +202,7 @@ contract AgentMarketplaceTest is Test {
         vm.stopPrank();
 
         vm.prank(seller);
-        market.update(listingId, uint128(100 * UNIT), 7 days, false, "");
+        market.update(listingId, ANALIS, address(asset), uint128(100 * UNIT), 7 days, false, "");
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.ListingInactive.selector, listingId));
         market.hire(listingId, 1, ANY, address(0), "");
@@ -216,7 +216,7 @@ contract AgentMarketplaceTest is Test {
         market.hire(listingId, 1, ANY, address(0), "");
 
         vm.prank(stranger);
-        market.update(listingId, uint128(10 * UNIT), 7 days, true, "");
+        market.update(listingId, ANALIS, address(asset), uint128(10 * UNIT), 7 days, true, "");
         assertEq(market.getListing(listingId).seller, stranger);
         vm.prank(buyer);
         market.hire(listingId, 1, ANY, address(0), "");
@@ -225,7 +225,7 @@ contract AgentMarketplaceTest is Test {
     function test_TheBuyerCapsWhatTheyAgreeToPaySoALastMinutePriceRiseCannotCostMore() public {
         // The seller raises the price right before the hire lands.
         vm.prank(seller);
-        market.update(listingId, uint128(1_000 * UNIT), 7 days, true, "");
+        market.update(listingId, ANALIS, address(asset), uint128(1_000 * UNIT), 7 days, true, "");
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.PriceChanged.selector, 1_000 * UNIT, 100 * UNIT));
         market.hire(listingId, 1, 100 * UNIT, address(0), "");
@@ -233,10 +233,85 @@ contract AgentMarketplaceTest is Test {
 
         // An exact cap that still matches goes through.
         vm.prank(seller);
-        market.update(listingId, uint128(100 * UNIT), 7 days, true, "");
+        market.update(listingId, ANALIS, address(asset), uint128(100 * UNIT), 7 days, true, "");
         vm.prank(buyer);
         market.hire(listingId, 1, 100 * UNIT, address(0), "");
         assertEq(asset.balanceOf(agentWallet), 95 * UNIT);
+    }
+
+    /// Finding M-02: slots filled with junk by an operator can be repurposed, because update now changes capability and asset.
+    function test_AnOwnerCanRepurposeAJunkSlot() public {
+        vm.prank(seller);
+        identity.approve(stranger, agentId);
+        vm.startPrank(stranger);
+        for (uint256 i; i < 3; ++i) market.list(agentId, keccak256(abi.encode("junk", i)), address(asset), 1, 1 days, "");
+        vm.stopPrank();
+        vm.prank(seller);
+        vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.TooManyListings.selector, agentId));
+        market.list(agentId, HUMAS, address(asset), 1, 1 days, "");
+
+        vm.prank(seller);
+        market.update(1, HUMAS, address(asset), uint128(20 * UNIT), 7 days, true, "");
+        AgentMarketplace.Listing memory l = market.getListing(1);
+        assertEq(l.capability, HUMAS);
+        assertEq(l.price, 20 * UNIT);
+        vm.prank(seller);
+        vm.expectRevert(AgentMarketplace.EmptyCapability.selector);
+        market.update(1, bytes32(0), address(asset), 1, 7 days, true, "");
+        vm.prank(seller);
+        vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.AssetNotAllowed.selector, address(0xbeef)));
+        market.update(1, HUMAS, address(0xbeef), 1, 7 days, true, "");
+    }
+
+    /// Finding M-03: free hires prove nothing, so paid hires are counted on their own.
+    function test_PaidHiresAreCountedSeparatelyFromFreeOnes() public {
+        vm.prank(seller);
+        uint256 free = market.list(agentId, HUMAS, address(asset), 0, 1 days, "");
+        for (uint256 i; i < 5; ++i) {
+            vm.prank(makeAddr(string(abi.encode("fresh", i))));
+            market.hire(free, 1, ANY, address(0), "");
+        }
+        AgentMarketplace.Stats memory st = market.statsOf(free);
+        assertEq(st.hires, 5);
+        assertEq(st.paidHires, 0, "five free hires prove nothing");
+        assertEq(st.revenue, 0);
+
+        vm.prank(buyer);
+        market.hire(listingId, 1, ANY, address(0), "");
+        st = market.statsOf(listingId);
+        assertEq(st.hires, 1);
+        assertEq(st.paidHires, 1);
+    }
+
+    /// Finding G-01: hiring the same wallet for a different role must not silently replace a role still running.
+    function test_AHireCannotReplaceAnotherRoleThatIsStillRunning() public {
+        vm.prank(seller);
+        uint256 humasListing = market.list(agentId, HUMAS, address(asset), uint128(10 * UNIT), 1 hours, "");
+        vm.prank(mayor);
+        market.hire(listingId, 4, ANY, address(guardian), abi.encode(address(city))); // analyst for 28 days
+
+        vm.prank(mayor);
+        vm.expectRevert(abi.encodeWithSelector(CityGuardian.RoleConflict.selector, address(city), agentWallet, CityGuardian.Role.ANALIS, CityGuardian.Role.HUMAS));
+        market.hire(humasListing, 1, ANY, address(guardian), abi.encode(address(city)));
+        assertTrue(guardian.isActiveAgent(address(city), agentWallet, CityGuardian.Role.ANALIS), "the paid analyst role is intact");
+        assertEq(asset.balanceOf(agentWallet), 380 * UNIT, "and the failed hire took no money");
+
+        // The same wallet can be hired for the other role once the first one has run out, or after the mayor revokes it.
+        vm.prank(mayor);
+        guardian.revokeAgent(address(city), agentWallet);
+        vm.prank(mayor);
+        market.hire(humasListing, 1, ANY, address(guardian), abi.encode(address(city)));
+        assertTrue(guardian.isActiveAgent(address(city), agentWallet, CityGuardian.Role.HUMAS));
+    }
+
+    /// Finding G-02: renewing a grant that already runs to the end of time must not revert.
+    function test_RenewingAGrantThatNeverExpiresSimplyStaysThere() public {
+        vm.prank(mayor);
+        guardian.grantAgent(address(city), agentWallet, CityGuardian.Role.ANALIS, type(uint64).max);
+        vm.prank(mayor);
+        market.hire(listingId, 1, ANY, address(guardian), abi.encode(address(city)));
+        (, uint64 expiry) = guardian.agents(address(city), agentWallet);
+        assertEq(expiry, type(uint64).max);
     }
 
     function test_AnAgentWithoutAWalletCannotBeHired() public {

@@ -52,14 +52,17 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     bool private _adaptersSet;
 
     /// @dev F-02: an adapter whose `totalAssets()` reverts can be put in quarantine by anyone, and only while it really
-    /// fails (`quarantine` probes it). A quarantined adapter is valued at the last value seen by a state-changing call
-    /// (`lastKnownAssets`), deposits stop, and withdrawals are limited to each holder's pro-rata share of the liquid
-    /// assets, so one broken adapter no longer locks the whole city and nobody can buy shares on a falsely low price.
+    /// fails (`quarantine` probes it). A quarantined adapter counts as ZERO in `totalAssets()`, so the books can never
+    /// show money that is not there, deposits stop, the fee rate cannot be raised, and everybody who withdraws is paid
+    /// the same liquid price (liquid assets per share) no matter who leaves first. The price of that simplicity is
+    /// that a holder who withdraws during a quarantine gives up their share of the quarantined position; it stays with
+    /// those who remain and is theirs again if the adapter is restored. One broken adapter no longer locks the city.
     mapping(address => bool) public quarantined;
-    mapping(address => uint256) public lastKnownAssets;
     uint256 public quarantinedCount;
-    /// @dev Gas given to the probe of a suspect adapter, so an adapter that burns gas cannot stall `quarantine`.
+    /// @dev Gas given to the probe in `quarantine`, so an adapter that burns gas cannot stall the call, and the larger
+    /// allowance `restoreAdapter` gives, so a merely expensive adapter that was quarantined can always come back.
     uint256 internal constant PROBE_GAS = 1_000_000;
+    uint256 internal constant RESTORE_PROBE_GAS = 5_000_000;
 
     /// @dev B1.10 (finding F-05): the session key's cumulative budget per rolling window, in basis points of total
     /// assets. The mayor's own calls are not limited by it.
@@ -81,7 +84,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     event FeeSet(uint16 oldFeeBps, uint16 newFeeBps);
     event MaxShiftSet(uint16 maxShiftBps);
     event PlanKeyRevealed(bytes32 indexed entryId, bytes32 key);
-    event AdapterQuarantined(address indexed adapter, uint256 frozenAssets);
+    event AdapterQuarantined(address indexed adapter);
     event AdapterRestored(address indexed adapter, uint256 assets);
     event SessionBudgetSet(uint16 budgetBps);
     event StyleSet(bytes32 style);
@@ -109,6 +112,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     error NotQuarantined(address adapter);
     error AdapterStillBroken(address adapter);
     error SessionBudgetExceeded(uint256 used, uint256 cap);
+    error QuarantineActive();
 
     modifier onlyMayor() {
         if (msg.sender != mayor) revert NotMayor();
@@ -184,53 +188,16 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
         return ERC4626.decimals();
     }
 
-    /// @notice Idle assets plus every adapter's position. A quarantined adapter counts at its last known value.
-    /// @dev Strict on purpose for healthy adapters: if one reverts, pricing reverts too, because treating a failing
-    /// adapter as worth 0 would let depositors buy shares cheaply. Anyone can call `quarantine` to end that state.
+    /// @notice Idle assets plus every healthy adapter's position. A quarantined adapter counts as zero.
+    /// @dev Strict on purpose for healthy adapters: if one reverts, pricing reverts too, because guessing its value would
+    /// let someone trade against a wrong price. Anyone can call `quarantine` to end that state.
     function totalAssets() public view override returns (uint256 total) {
         total = IERC20(asset()).balanceOf(address(this));
         uint256 n = _adapters.length;
         for (uint256 i; i < n; ++i) {
             address a = _adapters[i];
-            total += quarantined[a] ? lastKnownAssets[a] : IAdapter(a).totalAssets();
+            if (!quarantined[a]) total += IAdapter(a).totalAssets();
         }
-    }
-
-    /// @dev Like `totalAssets()` but also records each healthy adapter's value, so a later quarantine has a value to
-    /// freeze. Called by every state-changing path through `_accrueFee`.
-    function _syncAssets() internal returns (uint256 total) {
-        total = IERC20(asset()).balanceOf(address(this));
-        uint256 n = _adapters.length;
-        for (uint256 i; i < n; ++i) {
-            address a = _adapters[i];
-            uint256 v;
-            if (quarantined[a]) {
-                v = lastKnownAssets[a];
-            } else {
-                v = IAdapter(a).totalAssets();
-                if (lastKnownAssets[a] != v) lastKnownAssets[a] = v;
-            }
-            total += v;
-        }
-    }
-
-    /// @dev Idle assets plus the healthy adapters: what could actually be paid out.
-    function _liquidAssets() internal view returns (uint256 liquid) {
-        liquid = IERC20(asset()).balanceOf(address(this));
-        uint256 n = _adapters.length;
-        for (uint256 i; i < n; ++i) {
-            address a = _adapters[i];
-            if (!quarantined[a]) liquid += IAdapter(a).totalAssets();
-        }
-    }
-
-    /// @dev The holder's share of the liquid assets, `liquid * shares / supply`. While an adapter is quarantined this is
-    /// the most anyone can take out, so early leavers cannot drain the liquid assets and leave the rest with a frozen,
-    /// possibly worthless position.
-    function _liquidShareOf(address account) internal view returns (uint256) {
-        uint256 supply = totalSupply();
-        if (supply == 0) return 0;
-        return _liquidAssets().mulDiv(balanceOf(account), supply);
     }
 
     /// @notice Puts an adapter whose `totalAssets()` fails into quarantine. Anyone may call it, and it only works while the
@@ -238,28 +205,27 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     function quarantine(address adapter) external nonReentrant {
         if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (quarantined[adapter]) revert AlreadyQuarantined(adapter);
-        (bool ok,) = _probe(adapter);
+        (bool ok,) = _probe(adapter, PROBE_GAS);
         if (ok) revert AdapterNotBroken(adapter);
         quarantined[adapter] = true;
         ++quarantinedCount;
-        emit AdapterQuarantined(adapter, lastKnownAssets[adapter]);
+        emit AdapterQuarantined(adapter);
     }
 
     /// @notice Ends the quarantine of an adapter that works again. Anyone may call it, and it only works if the probe
     /// succeeds. The adapter is valued at what it reports now.
     function restoreAdapter(address adapter) external nonReentrant {
         if (!quarantined[adapter]) revert NotQuarantined(adapter);
-        (bool ok, uint256 value) = _probe(adapter);
+        (bool ok, uint256 value) = _probe(adapter, RESTORE_PROBE_GAS);
         if (!ok) revert AdapterStillBroken(adapter);
         quarantined[adapter] = false;
         --quarantinedCount;
-        lastKnownAssets[adapter] = value;
         emit AdapterRestored(adapter, value);
     }
 
-    function _probe(address adapter) internal view returns (bool ok, uint256 value) {
+    function _probe(address adapter, uint256 gasCap) internal view returns (bool ok, uint256 value) {
         bytes memory ret;
-        (ok, ret) = adapter.staticcall{gas: PROBE_GAS}(abi.encodeCall(IAdapter.totalAssets, ()));
+        (ok, ret) = adapter.staticcall{gas: gasCap}(abi.encodeCall(IAdapter.totalAssets, ()));
         if (ok && ret.length == 32) value = abi.decode(ret, (uint256));
         else ok = false;
     }
@@ -274,19 +240,6 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
 
     function maxMint(address receiver) public view override returns (uint256) {
         return _convertToShares(maxDeposit(receiver), Math.Rounding.Floor);
-    }
-
-    /// @dev With a quarantined adapter, limited to the holder's pro-rata share of the liquid assets.
-    function maxWithdraw(address account) public view override returns (uint256) {
-        uint256 byShares = super.maxWithdraw(account);
-        if (quarantinedCount == 0) return byShares;
-        return Math.min(byShares, _liquidShareOf(account));
-    }
-
-    function maxRedeem(address account) public view override returns (uint256) {
-        uint256 shares = balanceOf(account);
-        if (quarantinedCount == 0) return shares;
-        return Math.min(shares, _convertToShares(_liquidShareOf(account), Math.Rounding.Floor));
     }
 
     function deposit(uint256 assets, address receiver) public override nonReentrant returns (uint256) {
@@ -316,6 +269,8 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
         super._transferOut(to, assets);
     }
 
+    /// @dev A healthy adapter whose withdrawal fails (for example a paused protocol) is skipped, so one illiquid adapter
+    /// cannot block a withdrawal that idle cash and the other adapters can pay; it reverts only if the total falls short.
     function _pullFromAdapters(uint256 needed) internal {
         IERC20 token = IERC20(asset());
         uint256 n = _adapters.length;
@@ -325,8 +280,11 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
             uint256 available = adapter.totalAssets();
             if (available == 0) continue;
             uint256 before = token.balanceOf(address(this));
-            if (available <= needed) adapter.withdrawAll();
-            else adapter.withdraw(needed);
+            if (available <= needed) {
+                try adapter.withdrawAll() returns (uint256) {} catch {}
+            } else {
+                try adapter.withdraw(needed) returns (uint256) {} catch {}
+            }
             uint256 got = token.balanceOf(address(this)) - before;
             needed = got >= needed ? 0 : needed - got;
         }
@@ -446,7 +404,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     /// @dev Mints fee shares to the platform treasury and the mayor if the share price is above the high-water mark.
     /// Returns total assets, so callers do not have to walk the adapters twice.
     function _accrueFee() internal returns (uint256 total) {
-        total = _syncAssets();
+        total = totalAssets();
         uint256 supply = totalSupply();
         uint256 price = _pricePerShare(total, supply);
         if (supply == 0) {
@@ -507,17 +465,11 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
         if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         _accrueFee();
         uint256 withdrawn = IAdapter(adapter).withdrawAll();
-        _refresh(adapter);
         emit Evacuated(adapter, withdrawn);
     }
 
     function _isActiveSessionKey(address account) internal view returns (bool) {
         return account != address(0) && account == sessionKey && block.timestamp < sessionKeyExpiry;
-    }
-
-    /// @dev Records an adapter's value after money moved in or out, so a quarantine right afterwards freezes it correctly.
-    function _refresh(address adapter) internal {
-        if (adapter != address(0) && !quarantined[adapter]) lastKnownAssets[adapter] = IAdapter(adapter).totalAssets();
     }
 
     /// @dev Spends `amount` of the session key's rolling budget; the window restarts an hour after it opened.
@@ -568,8 +520,6 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
             IAdapter(to).deposit(moved);
             token.forceApprove(to, 0);
         }
-        _refresh(from);
-        _refresh(to);
 
         emit Rebalanced(caller, from, to, moved, planHash);
     }
@@ -602,6 +552,8 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     /// @notice Changes the fee. Pending fee is crystallised at the old rate first, and the new rate is capped by
     /// the factory.
     function setFee(uint16 newFeeBps) external nonReentrant onlyMayor {
+        // A raise could be applied to profit that is hidden in a quarantined adapter and was earned at the old rate.
+        if (quarantinedCount > 0) revert QuarantineActive();
         uint16 maxFee = ICityFactory(factory).maxFeeBps();
         if (newFeeBps > maxFee) revert FeeTooHigh(newFeeBps, maxFee);
         _accrueFee();

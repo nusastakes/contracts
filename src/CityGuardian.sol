@@ -88,6 +88,7 @@ contract CityGuardian is CreConsumer {
     error NotMarketplace(address caller);
     error CapabilityNotHireable(bytes32 capability);
     error RoleNotHireable(Role role);
+    error RoleConflict(address city, address agent, Role active, Role requested);
 
     /// @dev The deployer becomes the owner (the CRE receiver base does that); ownership moves to `owner_` right away.
     constructor(address owner_, address forwarder_, uint64 chainSelector_) CreConsumer(forwarder_, chainSelector_) {
@@ -135,8 +136,13 @@ contract CityGuardian is CreConsumer {
         if (agent == address(0)) revert InvalidAgent();
         if (expiry <= block.timestamp) revert ExpiryInPast(expiry);
         Agent memory current = agents[city][agent];
-        uint64 start = current.role == role && current.expiry > block.timestamp ? current.expiry : uint64(block.timestamp);
-        uint64 newExpiry = start + (expiry - uint64(block.timestamp));
+        bool stillActive = current.role != Role.NONE && current.expiry > block.timestamp;
+        // One wallet holds one role per city. Hiring it for a different role while another is still running would silently
+        // replace what the mayor already paid for (or granted by hand), so that is refused; the mayor can revoke first.
+        if (stillActive && current.role != role) revert RoleConflict(city, agent, current.role, role);
+        uint64 start = stillActive ? current.expiry : uint64(block.timestamp);
+        uint256 extended = uint256(start) + (expiry - uint64(block.timestamp));
+        uint64 newExpiry = extended > type(uint64).max ? type(uint64).max : uint64(extended);
         agents[city][agent] = Agent(role, newExpiry);
         emit AgentGranted(city, agent, role, newExpiry);
     }

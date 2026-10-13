@@ -4,17 +4,18 @@ Smart contracts for **Nusastakes**: every city is an ERC-4626 vault on Monad. Re
 spreads it over platform-approved adapters, and earns a fee only on the profit above a per-city high-water mark. No
 function can send city funds anywhere except to that city's own adapters or to a share holder who is withdrawing.
 
-> **Status: testnet demo, not audited, not deployed yet.** Tidak ada alamat deploy di dokumen ini sampai kontrak
-> benar-benar di-deploy. Yield di testnet adalah **simulasi** (lihat `MirrorYieldAdapter`); satu-satunya integrasi
-> protokol sungguhan yang diuji adalah `ERC4626Adapter` ke vault Morpho AUSD di fork mainnet.
+> **Status: testnet demo (v3), not audited by a human.** Deployed on Monad testnet only; the addresses are in the table
+> below and in `deployments/monad-testnet.json`. Yield di testnet adalah **simulasi** (lihat `MirrorYieldAdapter`);
+> satu-satunya integrasi protokol sungguhan yang diuji adalah `ERC4626Adapter` ke vault Morpho AUSD di fork mainnet.
 
 ## Kontrak
 
 | Kontrak | Fungsi |
 | --- | --- |
 | `CityFactory` | Siapa saja mendirikan kota (`createCity`); `cityInfos(start, count)` mengembalikan data semua kota dalam satu panggilan; platform hanya mengatur daftar implementasi adapter, parameter adapter, dan batas (fee maksimum, potongan platform, batas deposit). |
-| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci sesi (`setSessionKey`, kunci kedua milik walikota untuk kerja harian) hanya boleh `rebalance`; `depositWithPermit` dan `redeemWithPermit` (share vault punya `permit`) untuk setor dan tarik tanpa gas lewat relayer; metadata kota (`community`, `mapURI`, `createdAt`) tersimpan onchain; `evacuate` oleh guardian hanya ke idle. |
-| `CityGuardian` | Izin agen AI per kota (Satpam, Analis, Humas), usulan Analis yang harus disetujui walikota, dan penerima laporan Chainlink CRE untuk evakuasi. |
+| `CityVault` | Vault ERC-4626 per kota. Fee kinerja dengan high-water mark dicetak sebagai share ke walikota dan treasury; `rebalance` hanya antara idle dan adapter kota itu dengan batas per panggilan; kunci sesi (`setSessionKey`, kunci kedua milik walikota untuk kerja harian) hanya boleh `rebalance`; `depositWithPermit` dan `redeemWithPermit` (share vault punya `permit`) untuk setor dan tarik tanpa gas lewat relayer; metadata kota (`community`, `mapURI`, `createdAt`, `style`) tersimpan onchain; `evacuate` oleh guardian hanya ke idle. **v3:** `quarantine`/`restoreAdapter` (siapa pun, hanya bila adapter benar-benar gagal) mengisolasi satu adapter rusak tanpa mengunci kota: adapter itu dihitung nol, setoran dan perubahan fee berhenti, dan semua yang menarik dibayar harga likuid yang sama; kunci sesi punya anggaran kumulatif per jam (`sessionBudgetBps`, bawaan 20%). |
+| `CityGuardian` | Izin agen AI per kota (Satpam, Analis, Humas), usulan Analis yang harus disetujui walikota, dan penerima laporan Chainlink CRE untuk evakuasi. **v3:** `onHire` menerima sewa dari `AgentMarketplace` (hanya dari marketplace yang dikonfigurasi, hanya untuk walikota kota itu, tidak pernah untuk Satpam). |
+| `AgentMarketplace` | **v3.** Marketplace umum untuk agen ERC-8004 (tidak tahu soal kota): pemilik agen memasang layanan dengan harga per periode, klien menyewa dan membayar **langsung ke dompet agen** (dikurangi biaya platform maksimal 10%), lalu hook opsional dipanggil (`CityGuardian` memberi peran di kota; aplikasi lain bisa menulis hook sendiri). Tidak pernah menyimpan dana; statistik sewa dan pendapatan dari pembayaran nyata. |
 | `CreConsumer` | Pemeriksaan tambahan untuk laporan CRE: target, chain selector, dan identitas workflow harus dikunci sebelum laporan diterima. |
 | `adapters/ERC4626Adapter` | Adapter generik ke vault ERC-4626 mana pun yang asetnya sama (diuji ke Morpho di fork mainnet). |
 | `adapters/MirrorYieldAdapter` | **Simulasi** yield untuk testnet: mengikuti APY vault AUSD mainnet dari `ApyFeed`, dibayar dari `YieldReserve`. Selalu diberi label simulasi. |
@@ -54,20 +55,23 @@ simulasi waktu (`vm.warp`), bukan yield nyata. `forge test` tanpa RPC melewati t
 
 ## Alamat deploy (Monad testnet, chainId 10143)
 
-Deploy ke-2, 13 Okt 2026, dengan `script/Deploy.s.sol`; kelima kontrak terverifikasi `exact_match` di Sourcify (MonadVision).
-Daftar lengkap dengan hash transaksi dan blok: `deployments/monad-testnet.json`. Deploy pertama
-(`deployments/monad-testnet.superseded-1.json`) sudah digantikan karena kontrak berubah; jangan dipakai.
+**v3 revisi 2**, 13 Okt 2026, dengan `script/Deploy.s.sol`; keenam kontrak terverifikasi `exact_match` di Sourcify (MonadVision).
+Daftar lengkap dengan hash transaksi dan blok: `deployments/monad-testnet.json`. Deploy sebelumnya
+(`monad-testnet.superseded-1.json`, `-2.json`, dan `-3.json`, yaitu v3 revisi 1) sudah digantikan; jangan dipakai. Alamat juga
+tersedia di `GET /config` pada relayer.
 
 | Kontrak | Alamat |
 | --- | --- |
-| `CityFactory` | [`0x6765F0C80F6a7D5EC7Af120d12e81628F641508E`](https://testnet.monadvision.com/address/0x6765F0C80F6a7D5EC7Af120d12e81628F641508E) |
-| `CityGuardian` | [`0x083899bEE8138E5f951db568926393FDb1F418A2`](https://testnet.monadvision.com/address/0x083899bEE8138E5f951db568926393FDb1F418A2) |
-| `ApyFeed` | [`0x707A675DDc976B0E9C6B520Dbd0326204F30d540`](https://testnet.monadvision.com/address/0x707A675DDc976B0E9C6B520Dbd0326204F30d540) |
-| `YieldReserve` | [`0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1`](https://testnet.monadvision.com/address/0x18B15f540E231Fb75F9c86a080a69c3D0FAB27C1) |
-| `MirrorYieldAdapter` (implementasi) | [`0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690`](https://testnet.monadvision.com/address/0x25BcA4f0ea34F115Cb7c620626fBBa95647E8690) |
+| `CityFactory` | [`0x194C8c5d9B93bA108104652cAD50f938e9205607`](https://testnet.monadvision.com/address/0x194C8c5d9B93bA108104652cAD50f938e9205607) |
+| `CityGuardian` | [`0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4`](https://testnet.monadvision.com/address/0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4) |
+| `AgentMarketplace` | [`0x19EC26FBC8B00B2a670632BAd5f38120e27166f9`](https://testnet.monadvision.com/address/0x19EC26FBC8B00B2a670632BAd5f38120e27166f9) |
+| `ApyFeed` | [`0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0`](https://testnet.monadvision.com/address/0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0) |
+| `YieldReserve` | [`0x50c9de41cE85F5F4c75047B43940fd2718bFd02c`](https://testnet.monadvision.com/address/0x50c9de41cE85F5F4c75047B43940fd2718bFd02c) |
+| `MirrorYieldAdapter` (implementasi) | [`0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e`](https://testnet.monadvision.com/address/0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e) |
 | AUSD testnet (bukan milik kami) | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
+| ERC-8004 Identity / Reputation Registry (bukan milik kami) | `0x8004A818BFB912233c491871b3d84c89A494BD9e` / `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
 
-`YieldReserve` berisi 30.000 AUSD testnet dari faucet publik. Yield yang dibayarkan adalah **simulasi** yang mengikuti
+`YieldReserve` berisi AUSD testnet dari faucet publik. Yield yang dibayarkan adalah **simulasi** yang mengikuti
 APY vault AUSD di mainnet; keeper di repo `relayer` menulis APY ke `ApyFeed` (saat ini sekitar 128 bps).
 ABI JSON semua kontrak ada di `abi/` (dibuat ulang dengan `script/export-abi.sh`).
 
@@ -130,18 +134,22 @@ mainnet dengan sekitar 20 sampai 50 AUSD dan beberapa MON, dan izin pemilik proy
 
 ## Batasan yang diketahui
 
-Ditemukan oleh tinjauan independen dan sengaja belum diubah:
+Ditemukan oleh tinjauan independen. Dua yang paling penting ditangani di v3, dengan syarat yang dinyatakan jujur:
 
-- **Satu adapter rusak mengunci kota** (F-02): bila `totalAssets()` sebuah adapter revert, semua fungsi yang menghitung
-  harga share ikut revert, dan daftar adapter tidak bisa diubah setelah kota dibuat. Ada placeholder `TODO(F-02)` di
-  `CityVault.totalAssets()`. Mitigasi sekarang: adapter hanya dari daftar platform dan bukti mainnet dibatasi 200 AUSD.
-- **Batas pergeseran per panggilan, bukan kumulatif** (F-05): `maxShiftBps` dan batas kunci sesi berlaku per
-  panggilan `rebalance`, jadi beberapa panggilan berurutan bisa memindahkan lebih banyak. Dana tetap hanya bergerak
+- **Satu adapter rusak mengunci kota** (F-02): **ditangani di v3** lewat karantina (lihat tabel). Syaratnya: selama karantina
+  adapter itu dihitung nol, setoran berhenti, `setFee` ditolak, dan yang menarik dibayar harga likuid yang sama (urutan keluar
+  tidak berpengaruh) tetapi melepas bagiannya atas posisi yang terkunci, yang tetap untuk yang bertahan. Desain pertama (nilai
+  beku) diganti setelah tinjauan independen menemukan penghitungan ganda. Tidak ada penghapusan adapter; menulisnya sebagai
+  rugi butuh keputusan tata kelola.
+- **Batas pergeseran per panggilan, bukan kumulatif** (F-05): **ditangani di v3 untuk kunci sesi** dengan anggaran kumulatif per jam
+  (bawaan 20% dari total aset). Walikota sendiri tetap dibatasi hanya per panggilan (`maxShiftBps`). Dana tetap hanya bergerak
   antara idle dan adapter kota itu.
-- `maxWithdraw`/`maxRedeem` tidak memperhitungkan likuiditas adapter; `setFee` berlaku seketika sampai batas factory;
-  APY terakhir di `ApyFeed` terus berlaku bila keeper berhenti.
+- Marketplace: tidak menjamin kualitas agen; pembayaran sewa tidak dikembalikan bila walikota memecat agen lebih awal; tidak ada
+  bagi hasil fee; pemilik platform dapat menjeda listing dan sewa baru dan memilih aset pembayaran.
+- `maxWithdraw`/`maxRedeem` tidak memperhitungkan likuiditas adapter (kecuali dalam karantina); `setFee` berlaku seketika sampai batas
+  factory; APY terakhir di `ApyFeed` terus berlaku bila keeper berhenti.
 
-Belum diaudit oleh manusia.
+Belum diaudit oleh manusia. Tinjauan independen oleh agen terpisah untuk v3 (temuan dan perbaikannya): lihat vault, TC61.
 
 ## Repo lain di organisasi
 

@@ -22,8 +22,9 @@ interface IAgentIdentity is IERC721 {
 ///
 /// It knows nothing about cities. What a hire *does* is up to an optional hook that the client names, called after payment
 /// with the paying account: `CityGuardian.onHire` grants the agent a role in the client's city, but any application can
-/// write its own hook (a DAO, a game, a vault). On-chain stats (number of hires, revenue) come from real payments, so they
-/// cannot be inflated with free accounts the way ratings can.
+/// write its own hook (a DAO, a game, a vault). Revenue and `paidHires` only grow with real payments, so they cost something
+/// to inflate (the platform fee at least); `hires` also counts free hires and proves nothing, since any number of fresh
+/// accounts can take a free listing.
 /// @dev Trust assumptions: the Identity Registry is the official ERC-8004 deployment; the owner can allow payment tokens,
 /// set the treasury and a fee up to 10%, and pause new listings and hires; it cannot touch a hire that already happened.
 /// Payment tokens should be plain ERC-20s (no fee on transfer), which is why the owner allow-lists them.
@@ -50,7 +51,8 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     }
 
     struct Stats {
-        uint64 hires;
+        uint64 hires; // every hire, including free ones
+        uint64 paidHires; // hires that moved a non-zero payment
         uint64 lastHireAt;
         uint128 revenue; // total paid to the agent, after the platform fee, in the listing's asset
     }
@@ -137,13 +139,26 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
         emit Listed(listingId, agentId, seller, asset, price, period, capability);
     }
 
-    /// @notice Changes price, period, whether it is open, and the pointer. Whoever controls the agent *now* may do this, which
-    /// is also how a new owner takes over a listing that went stale after the agent was transferred.
-    function update(uint256 listingId, uint128 price, uint32 period, bool active, string calldata uri) external whenNotPaused {
+    /// @notice Changes what a listing offers: capability, payment asset, price, period, whether it is open, and the pointer.
+    /// Whoever controls the agent *now* may do this, which is also how a new owner takes over a listing that went stale after
+    /// the agent was transferred, and how an owner repurposes a slot that someone with an operator approval filled with junk.
+    function update(
+        uint256 listingId,
+        bytes32 capability,
+        address asset,
+        uint128 price,
+        uint32 period,
+        bool active,
+        string calldata uri
+    ) external whenNotPaused {
         Listing storage l = _listing(listingId);
         _requireController(l.agentId, msg.sender);
+        if (capability == bytes32(0)) revert EmptyCapability();
+        if (!allowedAsset[asset]) revert AssetNotAllowed(asset);
         if (period < MIN_PERIOD || period > MAX_PERIOD) revert PeriodOutOfRange(period);
         if (bytes(uri).length > MAX_URI_LENGTH) revert UriTooLong();
+        l.capability = capability;
+        l.asset = asset;
         l.price = price;
         l.period = period;
         l.active = active;
@@ -229,6 +244,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
         (uint256 total, uint256 fee, uint256 toAgent) = quote(listingId, periods);
         Stats storage st = _stats[listingId];
         st.hires += 1;
+        if (total > 0) st.paidHires += 1;
         st.lastHireAt = uint64(block.timestamp);
         st.revenue += uint128(toAgent);
         emit Hired(listingId, l.agentId, msg.sender, wallet, l.capability, until, toAgent, fee);
