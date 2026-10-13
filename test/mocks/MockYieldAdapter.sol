@@ -40,7 +40,7 @@ contract MockYieldAdapter is AdapterBase {
     }
 
     /// @dev 0 = works, 1 = reverts, 2 = returns one byte (not a word), 3 = burns all the gas it is given,
-    /// 4 = works but costs a little over two million gas (more than the quarantine probe allows, less than the restore probe).
+    /// 4 = works but costs a little over two million gas (more than the old 1M probe, less than the 3M probe).
     uint8 public mode;
 
     function setMode(uint8 newMode) external {
@@ -62,7 +62,7 @@ contract MockYieldAdapter is AdapterBase {
         }
         if (mode == 4) {
             assembly {
-                for { let i := 0 } lt(i, 70000) { i := add(i, 1) } { mstore(0x40, i) }
+                for { let i := 0 } lt(i, 36000) { i := add(i, 1) } { mstore(0x40, i) }
             }
         }
         return IERC20(asset).balanceOf(address(this));

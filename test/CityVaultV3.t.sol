@@ -237,20 +237,99 @@ contract CityVaultV3Test is BaseTest {
         vault.quarantine(address(adapterB));
         uint256 used = gasBefore - gasleft();
         assertTrue(vault.quarantined(address(adapterB)));
-        assertLt(used, 1_300_000, "the probe is capped at 1M gas, so a gas-burning adapter cannot stall the call");
+        assertLt(used, 3_300_000, "the probe is capped at 3M gas, so a gas-burning adapter cannot stall the call");
         assertEq(vault.quarantinedCount(), 2);
     }
 
-    /// Finding V-05: an adapter that works but costs more gas than the quarantine probe allows could be quarantined by a
-    /// stranger and then never restored. The restore probe is larger, so it comes back.
-    function test_AnExpensiveButHealthyAdapterCanAlwaysBeRestored() public {
+    /// Finding V-05 and the re-review's N-01: quarantine and restore use the same generous probe cap, so an adapter that
+    /// merely costs a lot of gas to read (here about two million, more than the old 1M cap) is simply healthy: nobody can
+    /// quarantine it, and nobody can flip it in and out of quarantine by calling one cap against the other.
+    function test_AnExpensiveButHealthyAdapterIsNotQuarantinableAtAll() public {
         _fundedCity();
         adapterA.setMode(4);
-        vault.quarantine(address(adapterA)); // too expensive for the 1M-gas probe, so it counts as failing
-        assertTrue(vault.quarantined(address(adapterA)));
+        uint256 g = gasleft();
+        adapterA.totalAssets();
+        uint256 cost = g - gasleft();
+        assertGt(cost, 1_000_000, "more than the old 1M probe would have allowed");
+        assertLt(cost, 3_000_000, "less than the 3M probe");
+        vm.expectRevert(abi.encodeWithSelector(CityVault.AdapterNotBroken.selector, address(adapterA)));
+        vault.quarantine(address(adapterA));
+        assertEq(vault.totalAssets(), 1000 * UNIT, "and it still prices the city");
+    }
+
+    /// The re-review's N-01: while an adapter is quarantined the exit price is the lower liquid price, so a signed redeem
+    /// permit or a standing allowance must not let somebody else trigger a holder's exit at that price.
+    function test_DuringAQuarantineOnlyTheHolderThemselvesCanExit() public {
+        _fundedCity();
+        // Alice gave a relayer (stranger) a standing allowance of her shares before anything went wrong.
+        uint256 aliceShares = vault.balanceOf(alice);
+        vm.prank(alice);
+        vault.approve(stranger, aliceShares);
+
+        adapterA.setMode(1);
+        vault.quarantine(address(adapterA));
+
+        vm.startPrank(stranger);
+        vm.expectRevert(CityVault.QuarantineExitsAreSelfOnly.selector);
+        vault.redeem(aliceShares, stranger, alice);
+        vm.expectRevert(CityVault.QuarantineExitsAreSelfOnly.selector);
+        vault.withdraw(1 * UNIT, stranger, alice);
+        vm.stopPrank();
+
+        // Her own exit is her call, made with the quarantine in view.
+        vm.prank(alice);
+        uint256 got = vault.redeem(aliceShares / 2, alice, alice);
+        assertApproxEqAbs(got, 150 * UNIT, 2);
+
+        // Once the adapter is back, third parties may act on her allowance again.
+        adapterA.setMode(0);
         vault.restoreAdapter(address(adapterA));
-        assertFalse(vault.quarantined(address(adapterA)));
-        assertEq(vault.totalAssets(), 1000 * UNIT);
+        uint256 left = vault.balanceOf(alice);
+        vm.prank(stranger);
+        vault.redeem(left / 10, stranger, alice);
+    }
+
+    function test_AGaslessRedeemPermitCannotBeExecutedByARelayerInsideAQuarantine() public {
+        (address carolSigner, uint256 carolPk) = makeAddrAndKey("carolSigner");
+        asset.mint(carolSigner, 100 * UNIT);
+        vm.startPrank(carolSigner);
+        asset.approve(address(vault), 100 * UNIT);
+        vault.deposit(100 * UNIT, carolSigner);
+        vm.stopPrank();
+        _move(address(0), address(adapterA), 50 * UNIT);
+        uint256 shares = vault.balanceOf(carolSigner);
+        uint256 deadline = block.timestamp + 1 days;
+        (uint8 v, bytes32 r, bytes32 sg) = _signSharePermit(carolPk, carolSigner, address(vault), shares, deadline);
+
+        adapterA.setMode(1);
+        vault.quarantine(address(adapterA));
+        vm.prank(relayer);
+        vm.expectRevert(CityVault.QuarantineExitsAreSelfOnly.selector);
+        vault.redeemWithPermit(carolSigner, shares, deadline, v, r, sg);
+        assertEq(vault.balanceOf(carolSigner), shares, "her shares are untouched");
+    }
+
+    /// The re-review's metamorphic check: a quarantine that ends with no trades in between changes nothing.
+    function testFuzz_AQuarantineAndRestoreWithNoTradesMintsNoFeeAndMovesNoPrice(uint96 aliceIn, uint96 toA, uint96 gain) public {
+        aliceIn = uint96(bound(aliceIn, 10 * UNIT, 1_000_000 * UNIT));
+        _deposit(alice, aliceIn);
+        toA = uint96(bound(toA, 1, aliceIn / 2));
+        _move(address(0), address(adapterA), toA);
+        adapterA.addYield(bound(gain, 0, 100_000 * UNIT));
+        vault.harvestFee();
+        uint256 supplyBefore = vault.totalSupply();
+        uint256 priceBefore = vault.pricePerShare();
+        uint256 hwmBefore = vault.highWaterMark();
+
+        adapterA.setMode(1);
+        vault.quarantine(address(adapterA));
+        adapterA.setMode(0);
+        vault.restoreAdapter(address(adapterA));
+        vault.harvestFee();
+
+        assertEq(vault.totalSupply(), supplyBefore, "no fee shares were minted by the round trip");
+        assertEq(vault.pricePerShare(), priceBefore);
+        assertEq(vault.highWaterMark(), hwmBefore);
     }
 
     /// Finding V-04: an adapter whose withdrawal fails (but whose totalAssets works) used to block every withdrawal bigger

@@ -59,10 +59,11 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     /// those who remain and is theirs again if the adapter is restored. One broken adapter no longer locks the city.
     mapping(address => bool) public quarantined;
     uint256 public quarantinedCount;
-    /// @dev Gas given to the probe in `quarantine`, so an adapter that burns gas cannot stall the call, and the larger
-    /// allowance `restoreAdapter` gives, so a merely expensive adapter that was quarantined can always come back.
-    uint256 internal constant PROBE_GAS = 1_000_000;
-    uint256 internal constant RESTORE_PROBE_GAS = 5_000_000;
+    /// @dev Gas given to the probe, the same for `quarantine` and `restoreAdapter` so a borderline adapter cannot be flipped
+    /// in and out of quarantine by calling one cap against the other. It is generous (no sane adapter reads its position for
+    /// that much) and it bounds what a gas-burning adapter can cost whoever probes it; Monad charges the gas limit, so a
+    /// quarantine or restore transaction should carry a bit over this.
+    uint256 internal constant PROBE_GAS = 3_000_000;
 
     /// @dev B1.10 (finding F-05): the session key's cumulative budget per rolling window, in basis points of total
     /// assets. The mayor's own calls are not limited by it.
@@ -113,6 +114,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     error AdapterStillBroken(address adapter);
     error SessionBudgetExceeded(uint256 used, uint256 cap);
     error QuarantineActive();
+    error QuarantineExitsAreSelfOnly();
 
     modifier onlyMayor() {
         if (msg.sender != mayor) revert NotMayor();
@@ -205,7 +207,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     function quarantine(address adapter) external nonReentrant {
         if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (quarantined[adapter]) revert AlreadyQuarantined(adapter);
-        (bool ok,) = _probe(adapter, PROBE_GAS);
+        (bool ok,) = _probe(adapter);
         if (ok) revert AdapterNotBroken(adapter);
         quarantined[adapter] = true;
         ++quarantinedCount;
@@ -216,16 +218,16 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     /// succeeds. The adapter is valued at what it reports now.
     function restoreAdapter(address adapter) external nonReentrant {
         if (!quarantined[adapter]) revert NotQuarantined(adapter);
-        (bool ok, uint256 value) = _probe(adapter, RESTORE_PROBE_GAS);
+        (bool ok, uint256 value) = _probe(adapter);
         if (!ok) revert AdapterStillBroken(adapter);
         quarantined[adapter] = false;
         --quarantinedCount;
         emit AdapterRestored(adapter, value);
     }
 
-    function _probe(address adapter, uint256 gasCap) internal view returns (bool ok, uint256 value) {
+    function _probe(address adapter) internal view returns (bool ok, uint256 value) {
         bytes memory ret;
-        (ok, ret) = adapter.staticcall{gas: gasCap}(abi.encodeCall(IAdapter.totalAssets, ()));
+        (ok, ret) = adapter.staticcall{gas: PROBE_GAS}(abi.encodeCall(IAdapter.totalAssets, ()));
         if (ok && ret.length == 32) value = abi.decode(ret, (uint256));
         else ok = false;
     }
@@ -253,13 +255,22 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
     }
 
     function withdraw(uint256 assets, address receiver, address owner) public override nonReentrant returns (uint256) {
+        _requireSelfExitDuringQuarantine(owner);
         _accrueFee();
         return super.withdraw(assets, receiver, owner);
     }
 
     function redeem(uint256 shares, address receiver, address owner) public override nonReentrant returns (uint256) {
+        _requireSelfExitDuringQuarantine(owner);
         _accrueFee();
         return super.redeem(shares, receiver, owner);
+    }
+
+    /// @dev While an adapter is in quarantine the exit price is the liquid price, which is lower than the price a holder saw
+    /// when they signed a permit or granted an allowance. Nobody else may trigger their exit then: only the holder, in a
+    /// transaction they chose after seeing the quarantine.
+    function _requireSelfExitDuringQuarantine(address owner) internal view {
+        if (quarantinedCount > 0 && msg.sender != owner) revert QuarantineExitsAreSelfOnly();
     }
 
     /// @dev Pulls liquidity from adapters (in order) when idle assets do not cover a withdrawal.
@@ -330,6 +341,7 @@ contract CityVault is ERC4626, ERC20Permit, ReentrancyGuard {
         nonReentrant
         returns (uint256 assets)
     {
+        _requireSelfExitDuringQuarantine(owner);
         try this.permit(owner, address(this), shares, deadline, v, r, s) {}
         catch {
             if (msg.sender != owner && allowance(owner, address(this)) != shares) revert PermitNotHonoured(owner);

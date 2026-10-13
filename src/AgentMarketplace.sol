@@ -22,9 +22,11 @@ interface IAgentIdentity is IERC721 {
 ///
 /// It knows nothing about cities. What a hire *does* is up to an optional hook that the client names, called after payment
 /// with the paying account: `CityGuardian.onHire` grants the agent a role in the client's city, but any application can
-/// write its own hook (a DAO, a game, a vault). Revenue and `paidHires` only grow with real payments, so they cost something
-/// to inflate (the platform fee at least); `hires` also counts free hires and proves nothing, since any number of fresh
-/// accounts can take a free listing.
+/// write its own hook (a DAO, a game, a vault). The statistics are NOT sybil-proof: `hires` counts free hires, and
+/// `paidHires`/`revenue` can be inflated by an owner who pays their own agent through many accounts for almost nothing
+/// (the fee rounds to zero on tiny totals, and all the money lands in the owner's own wallet). Treat them as usage that is
+/// visible on-chain, not as proof of quality, and read them next to who paid and how much. `revenue` adds up amounts in the
+/// listing's asset, so it mixes tokens if the owner changes the asset.
 /// @dev Trust assumptions: the Identity Registry is the official ERC-8004 deployment; the owner can allow payment tokens,
 /// set the treasury and a fee up to 10%, and pause new listings and hires; it cannot touch a hire that already happened.
 /// Payment tokens should be plain ERC-20s (no fee on transfer), which is why the owner allow-lists them.
@@ -69,7 +71,9 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     mapping(uint256 listingId => mapping(address client => uint64)) public hiredUntil;
 
     event Listed(uint256 indexed listingId, uint256 indexed agentId, address indexed seller, address asset, uint128 price, uint32 period, bytes32 capability);
-    event ListingUpdated(uint256 indexed listingId, address indexed seller, uint128 price, uint32 period, bool active);
+    event ListingUpdated(
+        uint256 indexed listingId, address indexed seller, bytes32 capability, address asset, uint128 price, uint32 period, bool active
+    );
     event Hired(
         uint256 indexed listingId,
         uint256 indexed agentId,
@@ -96,7 +100,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     error UnknownListing(uint256 listingId);
     error ListingInactive(uint256 listingId);
     error ListingStale(uint256 listingId);
-    error PriceChanged(uint256 total, uint256 maxTotal);
+    error TermsChanged(bytes32 expected, bytes32 actual);
     error FeeTooHigh(uint16 feeBps);
     error IsPaused();
     error ZeroAddress();
@@ -164,7 +168,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
         l.active = active;
         l.uri = uri;
         l.seller = identity.ownerOf(l.agentId);
-        emit ListingUpdated(listingId, l.seller, price, period, active);
+        emit ListingUpdated(listingId, l.seller, capability, asset, price, period, active);
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -179,18 +183,27 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
         toAgent = total - fee;
     }
 
+    /// @notice A fingerprint of everything a buyer is agreeing to when they hire: the agent, who sells it, the capability, the
+    /// payment asset, the price, the period, and the wallet that will be paid. Read it when you show the listing and pass it
+    /// to `hire`; if the seller changes any of these in between (a price rise, a shorter period, a different capability or
+    /// token, a new wallet), the hire fails instead of buying something else.
+    function termsHash(uint256 listingId) public view returns (bytes32) {
+        Listing storage l = _listing(listingId);
+        return _terms(l, identity.getAgentWallet(l.agentId));
+    }
+
     /// @notice Pays for `periods` periods of an agent. The agent's wallet gets the price minus the platform fee, directly from
-    /// the caller. `maxTotal` is the most the caller agrees to pay in total: the seller can change the price at any time, so
-    /// without it a price raised just before this transaction would be paid anyway. If `hook` is set it is called afterwards
+    /// the caller. `expectedTerms` must be the `termsHash` the caller saw: the seller can change the listing at any time, and
+    /// without this a change made just before this transaction would be paid anyway. If `hook` is set it is called afterwards
     /// with the caller as `client`; if the hook reverts, so does the hire and no payment moves. The caller must have approved
     /// this contract for the total price (or use `hireWithPermit`).
-    function hire(uint256 listingId, uint64 periods, uint256 maxTotal, address hook, bytes calldata data)
+    function hire(uint256 listingId, uint64 periods, bytes32 expectedTerms, address hook, bytes calldata data)
         external
         nonReentrant
         whenNotPaused
         returns (uint64 until)
     {
-        return _hire(listingId, periods, maxTotal, hook, data);
+        return _hire(listingId, periods, expectedTerms, hook, data);
     }
 
     /// @notice Same as `hire`, with an EIP-2612 permit for the payment so the caller needs no separate approval. A permit that
@@ -198,7 +211,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     function hireWithPermit(
         uint256 listingId,
         uint64 periods,
-        uint256 maxTotal,
+        bytes32 expectedTerms,
         address hook,
         bytes calldata data,
         uint256 deadline,
@@ -208,22 +221,26 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     ) external nonReentrant whenNotPaused returns (uint64 until) {
         (uint256 total,,) = quote(listingId, periods);
         try IERC20Permit(_listing(listingId).asset).permit(msg.sender, address(this), total, deadline, v, r, s) {} catch {}
-        return _hire(listingId, periods, maxTotal, hook, data);
+        return _hire(listingId, periods, expectedTerms, hook, data);
     }
 
-    function _hire(uint256 listingId, uint64 periods, uint256 maxTotal, address hook, bytes calldata data)
+    function _terms(Listing storage l, address wallet) internal view returns (bytes32) {
+        return keccak256(abi.encode(l.agentId, l.seller, l.capability, l.asset, l.price, l.period, wallet));
+    }
+
+    function _hire(uint256 listingId, uint64 periods, bytes32 expectedTerms, address hook, bytes calldata data)
         internal
         returns (uint64 until)
     {
         Listing storage l = _listing(listingId);
         if (!l.active) revert ListingInactive(listingId);
         if (periods == 0 || periods > MAX_PERIODS_PER_HIRE) revert PeriodsOutOfRange(periods);
-        (uint256 total,,) = quote(listingId, periods);
-        if (total > maxTotal) revert PriceChanged(total, maxTotal);
         // The listing is only good while the account that listed it still controls the agent, and the agent still has a wallet.
         if (identity.ownerOf(l.agentId) != l.seller) revert ListingStale(listingId);
         address wallet = identity.getAgentWallet(l.agentId);
         if (wallet == address(0)) revert AgentHasNoWallet(l.agentId);
+        bytes32 actualTerms = _terms(l, wallet);
+        if (actualTerms != expectedTerms) revert TermsChanged(expectedTerms, actualTerms);
 
         uint64 duration = uint64(uint256(l.period) * periods);
         until = _extend(listingId, duration);

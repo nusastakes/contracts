@@ -62,12 +62,12 @@ tersedia di `GET /config` pada relayer.
 
 | Kontrak | Alamat |
 | --- | --- |
-| `CityFactory` | [`0x194C8c5d9B93bA108104652cAD50f938e9205607`](https://testnet.monadvision.com/address/0x194C8c5d9B93bA108104652cAD50f938e9205607) |
-| `CityGuardian` | [`0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4`](https://testnet.monadvision.com/address/0x1ADE0E93F4C10b6d57F2E802B8B4e6167f0F0ea4) |
-| `AgentMarketplace` | [`0x19EC26FBC8B00B2a670632BAd5f38120e27166f9`](https://testnet.monadvision.com/address/0x19EC26FBC8B00B2a670632BAd5f38120e27166f9) |
-| `ApyFeed` | [`0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0`](https://testnet.monadvision.com/address/0xFB64e2F4345c55e4c19271AC2E7210BFe6b9a7F0) |
-| `YieldReserve` | [`0x50c9de41cE85F5F4c75047B43940fd2718bFd02c`](https://testnet.monadvision.com/address/0x50c9de41cE85F5F4c75047B43940fd2718bFd02c) |
-| `MirrorYieldAdapter` (implementasi) | [`0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e`](https://testnet.monadvision.com/address/0x2B2Eee125Fee62684f4Fa755C05C936b3CA2a60e) |
+| `CityFactory` | [`0xDC9A322E95E7d9214fA794D39534a15B4aB3d9fF`](https://testnet.monadvision.com/address/0xDC9A322E95E7d9214fA794D39534a15B4aB3d9fF) |
+| `CityGuardian` | [`0x74F881Ec300DfD1BfD26b4c0392f713fc775E7B9`](https://testnet.monadvision.com/address/0x74F881Ec300DfD1BfD26b4c0392f713fc775E7B9) |
+| `AgentMarketplace` | [`0x241E3f8f02C53e075794989b9E7BD9832e539D29`](https://testnet.monadvision.com/address/0x241E3f8f02C53e075794989b9E7BD9832e539D29) |
+| `ApyFeed` | [`0x3328AEbB57Ee0bc8d2C7f68468dEe6B9b50926b5`](https://testnet.monadvision.com/address/0x3328AEbB57Ee0bc8d2C7f68468dEe6B9b50926b5) |
+| `YieldReserve` | [`0x40e194d12BC3F6a6b26E8B7808f749c88281Ef96`](https://testnet.monadvision.com/address/0x40e194d12BC3F6a6b26E8B7808f749c88281Ef96) |
+| `MirrorYieldAdapter` (implementasi) | [`0x156fDb80Bd936f1CF1d45A1a167B660A82043080`](https://testnet.monadvision.com/address/0x156fDb80Bd936f1CF1d45A1a167B660A82043080) |
 | AUSD testnet (bukan milik kami) | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
 | ERC-8004 Identity / Reputation Registry (bukan milik kami) | `0x8004A818BFB912233c491871b3d84c89A494BD9e` / `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
 

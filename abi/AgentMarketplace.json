@@ -211,9 +211,9 @@
         "internalType": "uint64"
       },
       {
-        "name": "maxTotal",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "expectedTerms",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "hook",
@@ -250,9 +250,9 @@
         "internalType": "uint64"
       },
       {
-        "name": "maxTotal",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "expectedTerms",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "hook",
@@ -598,6 +598,25 @@
   },
   {
     "type": "function",
+    "name": "termsHash",
+    "inputs": [
+      {
+        "name": "listingId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -818,6 +837,18 @@
         "internalType": "address"
       },
       {
+        "name": "capability",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
         "name": "price",
         "type": "uint128",
         "indexed": false,
@@ -1010,22 +1041,6 @@
   },
   {
     "type": "error",
-    "name": "PriceChanged",
-    "inputs": [
-      {
-        "name": "total",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxTotal",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -1037,6 +1052,22 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TermsChanged",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actual",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },

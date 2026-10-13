@@ -2066,6 +2066,11 @@
   },
   {
     "type": "error",
+    "name": "QuarantineExitsAreSelfOnly",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
