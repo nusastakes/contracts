@@ -5,8 +5,10 @@ spreads it over platform-approved adapters, and earns a fee only on the profit a
 function can send city funds anywhere except to that city's own adapters or to a share holder who is withdrawing.
 
 > **Status: testnet demo (v3), not audited by a human.** Deployed on Monad testnet only; the addresses are in the table
-> below and in `deployments/monad-testnet.json`. Yield di testnet adalah **simulasi** (lihat `MirrorYieldAdapter`);
-> satu-satunya integrasi protokol sungguhan yang diuji adalah `ERC4626Adapter` ke vault Morpho AUSD di fork mainnet.
+> below and in `deployments/monad-testnet.json`. Yield di testnet adalah **simulasi** (lihat `MirrorYieldAdapter` dan
+> `TunedMirrorAdapter`); satu-satunya integrasi protokol sungguhan yang diuji adalah `ERC4626Adapter` ke vault Morpho AUSD
+> di fork mainnet. Tidak ada transaksi mainnet. 14 Okt 2026: `CityServices` (loket kota untuk pengguna luar), 17
+> implementasi adapter katalog, dan 11 implementasi adapter bersetelan ditambahkan tanpa deploy ulang factory.
 
 ## Kontrak
 
@@ -18,7 +20,9 @@ function can send city funds anywhere except to that city's own adapters or to a
 | `AgentMarketplace` | **v3.** Marketplace umum untuk agen ERC-8004 (tidak tahu soal kota): pemilik agen memasang layanan dengan harga per periode, klien menyewa dan membayar **langsung ke dompet agen** (dikurangi biaya platform maksimal 10%), lalu hook opsional dipanggil (`CityGuardian` memberi peran di kota; aplikasi lain bisa menulis hook sendiri). Tidak pernah menyimpan dana; statistik sewa dan pendapatan dari pembayaran nyata. |
 | `CreConsumer` | Pemeriksaan tambahan untuk laporan CRE: target, chain selector, dan identitas workflow harus dikunci sebelum laporan diterima. |
 | `adapters/ERC4626Adapter` | Adapter generik ke vault ERC-4626 mana pun yang asetnya sama (diuji ke Morpho di fork mainnet). |
-| `adapters/MirrorYieldAdapter` | **Simulasi** yield untuk testnet: mengikuti APY vault AUSD mainnet dari `ApyFeed`, dibayar dari `YieldReserve`. Selalu diberi label simulasi. |
+| `adapters/MirrorYieldAdapter` | **Simulasi** yield untuk testnet: mengikuti APY pool mainnet dari `ApyFeed` (satu implementasi per layanan katalog, `sourceId` = keccak256 id pool DefiLlama), dibayar dari `YieldReserve`. Selalu diberi label simulasi. |
+| `adapters/TunedMirrorAdapter` | **Simulasi bersetelan** (14 Okt): seperti `MirrorYieldAdapter`, tetapi menyimpan setelan kota on-chain (`tuning()`: looping bila protokol menerima AUSD sebagai jaminan, hadiah token atau bunga dasar saja, rentang harga likuiditas terkonsentrasi). Hanya walikota atau session key aktifnya yang boleh `setTuning`; imbal hasil diselesaikan dengan tarif lama sebelum setelan berubah. Tiap klon memakai kunci feed miliknya sendiri, `keccak256(abi.encode("nusastakes.tuned", adapter))`, yang ditulis keeper dari setelan dan data mainnet (rumus terbuka di relayer `src/tuning.mjs`); `baseSourceId()` = pool aslinya. Kerugian ditulis 0 karena feed tidak bisa negatif. |
+| `CityServices` | **Loket kota untuk pengguna luar** (14 Okt). Walikota menyalakan layanan dan memilih fee 0–3% (`setService`). **Panggung** (jenis 1): siapa pun meluncurkan token dengan fee 1 AUSD; seluruh suplai ada di kurva harga *constant product* virtual (tanpa jatah gratis untuk pembuat), dan setiap beli/jual membayar fee kota. **Pasar prediksi APY** (jenis 2): diselesaikan dari `ApyFeed` saja, taruhan ditutup sebelum pengukuran; **ditahan** di deploy ini (`predictionEnabled = false`). Fee **dialirkan** ke vault kota selama `dripPeriod` (12 jam) supaya penyetor kilat tidak bisa mengambilnya; fee kota tanpa penduduk menunggu, tidak pernah ke walikota langsung. Jual-beli dan klaim tetap jalan walau layanan dimatikan. |
 | `ApyFeed` | Catatan APY vault mainnet, ditulis keeper atau laporan CRE yang tervalidasi. |
 | `YieldReserve` | AUSD faucet milik platform; setiap adapter mendapat jatah yield sendiri sehingga saldo yang sama tidak dihitung dua kali. |
 
@@ -47,6 +51,9 @@ forge install foundry-rs/forge-std --no-git
 
 ## Tes
 
+229 tes lulus tanpa fork test (`forge test --no-match-path "test/fork/*"`, 14 Okt 2026), termasuk 22 tes `CityServices`
+(akses walikota, fee dialirkan, setoran kilat hanya mendapat kurang dari 1 AUSD dari fee 300 AUSD, kurva tetap solven
+dalam fuzz, prediksi diselesaikan dari feed saja dan bisa ditahan) dan 6 tes `TunedMirrorAdapter`.
 Tes unit, fuzz, dan invarian (termasuk dua kota yang berbagi satu `YieldReserve`) ada di `test/`. Fork test
 `test/fork/MorphoFork.t.sol` menyetor ke vault Morpho "Grove x Steakhouse High Yield AUSD" di Monad mainnet dengan
 batas 200 AUSD, melakukan `rebalance`, lalu menarik semuanya (Morpho membulatkan setoran turun 1 satuan terkecil,
@@ -67,12 +74,17 @@ tersedia di `GET /config` pada relayer.
 | `AgentMarketplace` | [`0x241E3f8f02C53e075794989b9E7BD9832e539D29`](https://testnet.monadvision.com/address/0x241E3f8f02C53e075794989b9E7BD9832e539D29) |
 | `ApyFeed` | [`0x3328AEbB57Ee0bc8d2C7f68468dEe6B9b50926b5`](https://testnet.monadvision.com/address/0x3328AEbB57Ee0bc8d2C7f68468dEe6B9b50926b5) |
 | `YieldReserve` | [`0x40e194d12BC3F6a6b26E8B7808f749c88281Ef96`](https://testnet.monadvision.com/address/0x40e194d12BC3F6a6b26E8B7808f749c88281Ef96) |
-| `MirrorYieldAdapter` (implementasi) | [`0x156fDb80Bd936f1CF1d45A1a167B660A82043080`](https://testnet.monadvision.com/address/0x156fDb80Bd936f1CF1d45A1a167B660A82043080) |
+| `MirrorYieldAdapter` (implementasi utama, Morpho Grove) | [`0x156fDb80Bd936f1CF1d45A1a167B660A82043080`](https://testnet.monadvision.com/address/0x156fDb80Bd936f1CF1d45A1a167B660A82043080) |
+| `CityServices` (14 Okt, blok 70750613) | [`0x9d156f5fdfa87925AF7c574f0791d804FFC9B4e1`](https://testnet.monadvision.com/address/0x9d156f5fdfa87925AF7c574f0791d804FFC9B4e1) |
+| 17 implementasi `MirrorYieldAdapter` katalog dan 11 implementasi `TunedMirrorAdapter` | daftar per layanan di `deployments/monad-testnet.json` (`catalogAdapters`, `tunedAdapters`) |
 | AUSD testnet (bukan milik kami) | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
 | ERC-8004 Identity / Reputation Registry (bukan milik kami) | `0x8004A818BFB912233c491871b3d84c89A494BD9e` / `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
 
-`YieldReserve` berisi AUSD testnet dari faucet publik. Yield yang dibayarkan adalah **simulasi** yang mengikuti
-APY vault AUSD di mainnet; keeper di repo `relayer` menulis APY ke `ApyFeed` (saat ini sekitar 128 bps).
+`YieldReserve` berisi AUSD testnet dari faucet publik (diisi ulang 14 Okt; jatah bawaan per klon adapter kini 200 AUSD).
+Yield yang dibayarkan adalah **simulasi** yang mengikuti APY pool mainnet; keeper di repo `relayer` menulis APY semua
+layanan katalog dan APY efektif tiap adapter bersetelan ke `ApyFeed`, dan workflow CRE menulis APY katalog sebagai jalur
+kedua. Contoh 14 Okt: Neverland looping 2× = 1147 bps, Uniswap v3 ±10% = 5000 bps (batas feed; tanpa batas 415%),
+Aave tanpa hadiah = 337 bps.
 ABI JSON semua kontrak ada di `abi/` (dibuat ulang dengan `script/export-abi.sh`).
 
 ## Deploy ke Monad testnet
@@ -100,6 +112,16 @@ ditolak sampai pemilik mengunci `expectedAuthor` atau `expectedWorkflowId` pada 
 
 Monad menagih gas limit, bukan gas yang terpakai, dan base fee testnet sekitar 100 gwei; simulasi memperkirakan
 sekitar 12,3 juta gas untuk seluruh skrip. Wallet yang baru diisi butuh beberapa detik sebelum bisa mengirim transaksi.
+
+## Menambah layanan ke deploy yang ada (14 Okt)
+
+```
+forge script script/DeployServices.s.sol --rpc-url $MONAD_TESTNET_RPC --broadcast   # CityServices + 17 adapter katalog + jatah 200 AUSD
+forge script script/DeployTuned.s.sol    --rpc-url $MONAD_TESTNET_RPC --broadcast   # 11 adapter bersetelan
+```
+
+Keduanya hanya untuk testnet (`block.chainid == 10143`) dan memeriksa bahwa deployer pemilik factory. Implementasi lama
+tetap diizinkan, jadi kota yang sudah ada tidak berubah. Hasil: 70 dan 33 transaksi, semua berhasil.
 
 ## Bukti mainnet (B4.8): skrip siap, belum dijalankan
 
@@ -148,6 +170,11 @@ Ditemukan oleh tinjauan independen. Dua yang paling penting ditangani di v3, den
   bagi hasil fee; pemilik platform dapat menjeda listing dan sewa baru dan memilih aset pembayaran.
 - `maxWithdraw`/`maxRedeem` tidak memperhitungkan likuiditas adapter (kecuali dalam karantina); `setFee` berlaku seketika sampai batas
   factory; APY terakhir di `ApyFeed` terus berlaku bila keeper berhenti.
+- `CityServices`: token Panggung bersifat spekulatif (pembeli awal bisa menjual ke pembeli belakangan); walikota yang
+  memegang hampir semua share bisa memompa angka lalu lintas dengan biaya kecil; pasar prediksi bergantung pada feed yang
+  ditulis platform dan ditahan di deploy ini. Layanan dipilih saat kota berdiri (`initAdapters` sekali, paling banyak 8).
+- `TunedMirrorAdapter`: APY efektif dihitung di luar rantai (keeper relayer) dan dipercaya seperti feed lainnya; klon tidak
+  menghasilkan apa pun sampai keeper menulis kuncinya.
 
 Belum diaudit oleh manusia. Tinjauan independen oleh agen terpisah untuk v3 (temuan dan perbaikannya): lihat vault, TC61.
 
@@ -159,8 +186,8 @@ Belum diaudit oleh manusia. Tinjauan independen oleh agen terpisah untuk v3 (tem
 
 ## Penggunaan alat AI
 
-- Kontrak dan tes ditulis dengan Claude Code (model Claude Sonnet 5.5 untuk pengerjaan; Claude Opus untuk rencana dan
-  pemeriksaan ulang). Satu tinjauan adversarial dilakukan oleh agen Claude terpisah yang menulis PoC; temuannya
+- Kontrak dan tes ditulis dengan Claude Code (sampai 13 Okt: Claude Sonnet 5.5 untuk pengerjaan, Claude Opus untuk rencana
+  dan pemeriksaan ulang; `CityServices` dan `TunedMirrorAdapter` pada 14 Okt ditulis Claude Opus). Satu tinjauan adversarial dilakukan oleh agen Claude terpisah yang menulis PoC; temuannya
   (termasuk satu bug nyata pada reserve yield bersama) diperbaiki dan diberi tes regresi.
 - Semua keluaran AI diperiksa pengembang. Klaim yang belum diuji ditulis "belum diuji" di dokumentasi. Tinjauan AI
   bukan pengganti audit manusia.
