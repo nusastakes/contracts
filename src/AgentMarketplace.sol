@@ -94,6 +94,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     error UnknownListing(uint256 listingId);
     error ListingInactive(uint256 listingId);
     error ListingStale(uint256 listingId);
+    error PriceChanged(uint256 total, uint256 maxTotal);
     error FeeTooHigh(uint16 feeBps);
     error IsPaused();
     error ZeroAddress();
@@ -164,10 +165,17 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     }
 
     /// @notice Pays for `periods` periods of an agent. The agent's wallet gets the price minus the platform fee, directly from
-    /// the caller. If `hook` is set it is called afterwards with the caller as `client`; if the hook reverts, so does the hire
-    /// and no payment moves. The caller must have approved this contract for the total price (or use `hireWithPermit`).
-    function hire(uint256 listingId, uint64 periods, address hook, bytes calldata data) external nonReentrant whenNotPaused returns (uint64 until) {
-        return _hire(listingId, periods, hook, data);
+    /// the caller. `maxTotal` is the most the caller agrees to pay in total: the seller can change the price at any time, so
+    /// without it a price raised just before this transaction would be paid anyway. If `hook` is set it is called afterwards
+    /// with the caller as `client`; if the hook reverts, so does the hire and no payment moves. The caller must have approved
+    /// this contract for the total price (or use `hireWithPermit`).
+    function hire(uint256 listingId, uint64 periods, uint256 maxTotal, address hook, bytes calldata data)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint64 until)
+    {
+        return _hire(listingId, periods, maxTotal, hook, data);
     }
 
     /// @notice Same as `hire`, with an EIP-2612 permit for the payment so the caller needs no separate approval. A permit that
@@ -175,6 +183,7 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     function hireWithPermit(
         uint256 listingId,
         uint64 periods,
+        uint256 maxTotal,
         address hook,
         bytes calldata data,
         uint256 deadline,
@@ -184,13 +193,18 @@ contract AgentMarketplace is Ownable, ReentrancyGuard {
     ) external nonReentrant whenNotPaused returns (uint64 until) {
         (uint256 total,,) = quote(listingId, periods);
         try IERC20Permit(_listing(listingId).asset).permit(msg.sender, address(this), total, deadline, v, r, s) {} catch {}
-        return _hire(listingId, periods, hook, data);
+        return _hire(listingId, periods, maxTotal, hook, data);
     }
 
-    function _hire(uint256 listingId, uint64 periods, address hook, bytes calldata data) internal returns (uint64 until) {
+    function _hire(uint256 listingId, uint64 periods, uint256 maxTotal, address hook, bytes calldata data)
+        internal
+        returns (uint64 until)
+    {
         Listing storage l = _listing(listingId);
         if (!l.active) revert ListingInactive(listingId);
         if (periods == 0 || periods > MAX_PERIODS_PER_HIRE) revert PeriodsOutOfRange(periods);
+        (uint256 total,,) = quote(listingId, periods);
+        if (total > maxTotal) revert PriceChanged(total, maxTotal);
         // The listing is only good while the account that listed it still controls the agent, and the agent still has a wallet.
         if (identity.ownerOf(l.agentId) != l.seller) revert ListingStale(listingId);
         address wallet = identity.getAgentWallet(l.agentId);

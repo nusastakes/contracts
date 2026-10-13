@@ -22,12 +22,14 @@ contract ReenteringHook is IHireHook {
     }
 
     function onHire(address, address, bytes32, uint64, bytes calldata) external {
-        market.hire(0, 1, address(0), "");
+        market.hire(0, 1, type(uint256).max, address(0), "");
     }
 }
 
 contract AgentMarketplaceTest is Test {
     uint256 internal constant UNIT = 1e6;
+    /// @dev "No cap": most tests are not about the price guard.
+    uint256 internal constant ANY = type(uint256).max;
     bytes32 internal constant ANALIS = keccak256("nusastakes.city-staff.analis");
     bytes32 internal constant HUMAS = keccak256("nusastakes.city-staff.humas");
 
@@ -162,7 +164,7 @@ contract AgentMarketplaceTest is Test {
         assertEq(toAgent, 285 * UNIT);
 
         vm.prank(buyer);
-        uint64 until = market.hire(listingId, 3, address(0), "");
+        uint64 until = market.hire(listingId, 3, ANY, address(0), "");
         assertEq(until, block.timestamp + 21 days);
         assertEq(asset.balanceOf(agentWallet), 285 * UNIT, "the money goes to the agent's wallet, not the NFT owner");
         assertEq(asset.balanceOf(seller), 0);
@@ -180,9 +182,9 @@ contract AgentMarketplaceTest is Test {
 
     function test_RenewingAddsTimeInsteadOfReplacingIt() public {
         vm.startPrank(buyer);
-        uint64 first = market.hire(listingId, 1, address(0), "");
+        uint64 first = market.hire(listingId, 1, ANY, address(0), "");
         vm.warp(block.timestamp + 2 days);
-        uint64 second = market.hire(listingId, 2, address(0), "");
+        uint64 second = market.hire(listingId, 2, ANY, address(0), "");
         vm.stopPrank();
         assertEq(second, first + 14 days);
         vm.warp(block.timestamp + 30 days);
@@ -192,18 +194,18 @@ contract AgentMarketplaceTest is Test {
     function test_HireRulesAreEnforced() public {
         vm.startPrank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.PeriodsOutOfRange.selector, uint64(0)));
-        market.hire(listingId, 0, address(0), "");
+        market.hire(listingId, 0, ANY, address(0), "");
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.PeriodsOutOfRange.selector, uint64(53)));
-        market.hire(listingId, 53, address(0), "");
+        market.hire(listingId, 53, ANY, address(0), "");
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.UnknownListing.selector, uint256(7)));
-        market.hire(7, 1, address(0), "");
+        market.hire(7, 1, ANY, address(0), "");
         vm.stopPrank();
 
         vm.prank(seller);
         market.update(listingId, uint128(100 * UNIT), 7 days, false, "");
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.ListingInactive.selector, listingId));
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
     }
 
     function test_AListingGoesStaleWhenTheAgentChangesHandsAndTheNewOwnerCanClaimIt() public {
@@ -211,26 +213,43 @@ contract AgentMarketplaceTest is Test {
         identity.transferFrom(seller, stranger, agentId);
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.ListingStale.selector, listingId));
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
 
         vm.prank(stranger);
         market.update(listingId, uint128(10 * UNIT), 7 days, true, "");
         assertEq(market.getListing(listingId).seller, stranger);
         vm.prank(buyer);
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
+    }
+
+    function test_TheBuyerCapsWhatTheyAgreeToPaySoALastMinutePriceRiseCannotCostMore() public {
+        // The seller raises the price right before the hire lands.
+        vm.prank(seller);
+        market.update(listingId, uint128(1_000 * UNIT), 7 days, true, "");
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.PriceChanged.selector, 1_000 * UNIT, 100 * UNIT));
+        market.hire(listingId, 1, 100 * UNIT, address(0), "");
+        assertEq(asset.balanceOf(buyer), 10_000 * UNIT, "nothing was taken");
+
+        // An exact cap that still matches goes through.
+        vm.prank(seller);
+        market.update(listingId, uint128(100 * UNIT), 7 days, true, "");
+        vm.prank(buyer);
+        market.hire(listingId, 1, 100 * UNIT, address(0), "");
+        assertEq(asset.balanceOf(agentWallet), 95 * UNIT);
     }
 
     function test_AnAgentWithoutAWalletCannotBeHired() public {
         identity.setWallet(agentId, address(0));
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(AgentMarketplace.AgentHasNoWallet.selector, agentId));
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
     }
 
     function test_WithoutApprovalTheHireFailsAndNothingMoves() public {
         vm.prank(stranger);
         vm.expectRevert();
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
         assertEq(market.statsOf(listingId).hires, 0);
     }
 
@@ -238,7 +257,7 @@ contract AgentMarketplaceTest is Test {
         vm.prank(seller);
         uint256 free = market.list(agentId, HUMAS, address(asset), 0, 1 days, "");
         vm.prank(stranger);
-        market.hire(free, 2, address(0), "");
+        market.hire(free, 2, ANY, address(0), "");
         assertEq(market.statsOf(free).hires, 1);
         assertEq(market.statsOf(free).revenue, 0);
         assertTrue(market.isHired(free, stranger));
@@ -250,7 +269,7 @@ contract AgentMarketplaceTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _permit(buyerPk, buyer, address(market), 100 * UNIT, deadline);
         vm.prank(buyer);
-        market.hireWithPermit(listingId, 1, address(0), "", deadline, v, r, s);
+        market.hireWithPermit(listingId, 1, ANY, address(0), "", deadline, v, r, s);
         assertEq(asset.balanceOf(agentWallet), 95 * UNIT);
     }
 
@@ -261,7 +280,7 @@ contract AgentMarketplaceTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = _permit(buyerPk, buyer, address(market), 100 * UNIT, deadline);
         asset.permit(buyer, address(market), 100 * UNIT, deadline, v, r, s); // somebody front-ran the permit
         vm.prank(buyer);
-        market.hireWithPermit(listingId, 1, address(0), "", deadline, v, r, s);
+        market.hireWithPermit(listingId, 1, ANY, address(0), "", deadline, v, r, s);
         assertEq(asset.balanceOf(agentWallet), 95 * UNIT);
     }
 
@@ -270,7 +289,7 @@ contract AgentMarketplaceTest is Test {
     function test_ARealHireByTheMayorGrantsTheAgentItsRoleInTheCity() public {
         assertFalse(guardian.isActiveAgent(address(city), agentWallet, CityGuardian.Role.ANALIS));
         vm.prank(mayor);
-        market.hire(listingId, 2, address(guardian), abi.encode(address(city)));
+        market.hire(listingId, 2, ANY, address(guardian), abi.encode(address(city)));
         assertTrue(guardian.isActiveAgent(address(city), agentWallet, CityGuardian.Role.ANALIS));
         (CityGuardian.Role role, uint64 expiry) = guardian.agents(address(city), agentWallet);
         assertEq(uint8(role), uint8(CityGuardian.Role.ANALIS));
@@ -286,7 +305,7 @@ contract AgentMarketplaceTest is Test {
     function test_AHireByWhoIsNotTheMayorRevertsAsAWholeAndNoMoneyMoves() public {
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(CityGuardian.NotMayor.selector, address(city), buyer));
-        market.hire(listingId, 1, address(guardian), abi.encode(address(city)));
+        market.hire(listingId, 1, ANY, address(guardian), abi.encode(address(city)));
         assertEq(asset.balanceOf(agentWallet), 0);
         assertEq(asset.balanceOf(buyer), 10_000 * UNIT);
         assertEq(market.statsOf(listingId).hires, 0);
@@ -295,9 +314,9 @@ contract AgentMarketplaceTest is Test {
 
     function test_RenewalThroughTheHookExtendsTheCityGrant() public {
         vm.startPrank(mayor);
-        market.hire(listingId, 1, address(guardian), abi.encode(address(city)));
+        market.hire(listingId, 1, ANY, address(guardian), abi.encode(address(city)));
         vm.warp(block.timestamp + 3 days);
-        market.hire(listingId, 1, address(guardian), abi.encode(address(city)));
+        market.hire(listingId, 1, ANY, address(guardian), abi.encode(address(city)));
         vm.stopPrank();
         (, uint64 expiry) = guardian.agents(address(city), agentWallet);
         assertEq(expiry, block.timestamp - 3 days + 14 days, "7 days from the first hire plus 7 days more");
@@ -316,7 +335,7 @@ contract AgentMarketplaceTest is Test {
         uint256 odd = market.list(agentId, keccak256("not-mapped"), address(asset), 0, 1 days, "");
         vm.prank(mayor);
         vm.expectRevert(abi.encodeWithSelector(CityGuardian.CapabilityNotHireable.selector, keccak256("not-mapped")));
-        market.hire(odd, 1, address(guardian), abi.encode(address(city)));
+        market.hire(odd, 1, ANY, address(guardian), abi.encode(address(city)));
 
         vm.prank(stranger);
         vm.expectRevert();
@@ -327,7 +346,7 @@ contract AgentMarketplaceTest is Test {
         ReenteringHook hook = new ReenteringHook(market);
         vm.prank(buyer);
         vm.expectRevert(); // ReentrancyGuardReentrantCall
-        market.hire(listingId, 1, address(hook), "");
+        market.hire(listingId, 1, ANY, address(hook), "");
         assertEq(asset.balanceOf(agentWallet), 0, "the whole hire is undone");
     }
 
@@ -335,7 +354,7 @@ contract AgentMarketplaceTest is Test {
         CityGuardian other = new CityGuardian(platform, makeAddr("forwarder2"), 1);
         vm.prank(mayor);
         vm.expectRevert(abi.encodeWithSelector(CityGuardian.NotMarketplace.selector, address(market)));
-        market.hire(listingId, 1, address(other), abi.encode(address(city)));
+        market.hire(listingId, 1, ANY, address(other), abi.encode(address(city)));
     }
 
     // ───────────────────────────── platform owner ─────────────────────────────
@@ -364,7 +383,7 @@ contract AgentMarketplaceTest is Test {
         market.setPaused(true);
         vm.prank(buyer);
         vm.expectRevert(AgentMarketplace.IsPaused.selector);
-        market.hire(listingId, 1, address(0), "");
+        market.hire(listingId, 1, ANY, address(0), "");
         vm.prank(seller);
         vm.expectRevert(AgentMarketplace.IsPaused.selector);
         market.list(agentId, ANALIS, address(asset), 1, 1 days, "");
@@ -392,7 +411,7 @@ contract AgentMarketplaceTest is Test {
         asset.mint(buyer, total);
         uint256 before = asset.balanceOf(buyer);
         vm.prank(buyer);
-        market.hire(id, periods, address(0), "");
+        market.hire(id, periods, ANY, address(0), "");
         assertEq(before - asset.balanceOf(buyer), total, "the buyer pays exactly the total");
         assertEq(asset.balanceOf(agentWallet) + asset.balanceOf(treasury), total, "and all of it arrives, split by the fee");
         assertLe(asset.balanceOf(treasury), (total * 1000) / 10_000);
