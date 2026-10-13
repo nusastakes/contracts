@@ -47,6 +47,11 @@ contract CityGuardian is CreConsumer {
     /// the replay counter so high that every later report is rejected.
     uint256 public constant SCHEDULED_AT_TOLERANCE = 1 hours;
 
+    /// @notice The staff exchange (`AgentMarketplace`) that may grant hired agents on behalf of a mayor who paid for them.
+    address public marketplace;
+    /// @notice Which role a marketplace capability grants. SATPAM can never be hired this way: it belongs to the CRE workflow.
+    mapping(bytes32 capability => Role) public capabilityRole;
+
     mapping(address city => mapping(address agent => Agent)) public agents;
     mapping(bytes32 cityAdapterKey => uint256 scheduledAt) public lastScheduledAt;
     Proposal[] private _proposals;
@@ -63,6 +68,8 @@ contract CityGuardian is CreConsumer {
         bytes32 planHash
     );
     event ProposalApproved(uint256 indexed id, address indexed city, bytes32 planHash);
+    event MarketplaceSet(address indexed marketplace);
+    event CapabilitySet(bytes32 indexed capability, Role role);
     event EvacuationRequested(
         address indexed city, address indexed adapter, address indexed requester, bytes32 planHash
     );
@@ -78,6 +85,9 @@ contract CityGuardian is CreConsumer {
     error UnsupportedAction(uint8 action);
     error StaleReport(uint256 received, uint256 lastAccepted);
     error ScheduledInFuture(uint256 scheduledAt);
+    error NotMarketplace(address caller);
+    error CapabilityNotHireable(bytes32 capability);
+    error RoleNotHireable(Role role);
 
     /// @dev The deployer becomes the owner (the CRE receiver base does that); ownership moves to `owner_` right away.
     constructor(address owner_, address forwarder_, uint64 chainSelector_) CreConsumer(forwarder_, chainSelector_) {
@@ -98,6 +108,37 @@ contract CityGuardian is CreConsumer {
         if (expiry <= block.timestamp) revert ExpiryInPast(expiry);
         agents[city][agent] = Agent(role, expiry);
         emit AgentGranted(city, agent, role, expiry);
+    }
+
+    /// @notice Platform owner: sets the exchange contract that may call `onHire`.
+    function setMarketplace(address newMarketplace) external onlyOwner {
+        marketplace = newMarketplace;
+        emit MarketplaceSet(newMarketplace);
+    }
+
+    /// @notice Platform owner: maps a marketplace capability to the role it grants (`Role.NONE` switches it off).
+    function setCapabilityRole(bytes32 capability, Role role) external onlyOwner {
+        if (role == Role.SATPAM) revert RoleNotHireable(role);
+        capabilityRole[capability] = role;
+        emit CapabilitySet(capability, role);
+    }
+
+    /// @notice Called by the exchange right after `client` paid for an agent. `client` must be the mayor of the city named in
+    /// `data` (an ABI-encoded address). The hire adds time: a renewal while the agent is still active extends the
+    /// current expiry by the paid duration instead of replacing it.
+    function onHire(address client, address agent, bytes32 capability, uint64 expiry, bytes calldata data) external {
+        if (msg.sender != marketplace || msg.sender == address(0)) revert NotMarketplace(msg.sender);
+        address city = abi.decode(data, (address));
+        if (ICityVault(city).mayor() != client) revert NotMayor(city, client);
+        Role role = capabilityRole[capability];
+        if (role == Role.NONE) revert CapabilityNotHireable(capability);
+        if (agent == address(0)) revert InvalidAgent();
+        if (expiry <= block.timestamp) revert ExpiryInPast(expiry);
+        Agent memory current = agents[city][agent];
+        uint64 start = current.role == role && current.expiry > block.timestamp ? current.expiry : uint64(block.timestamp);
+        uint64 newExpiry = start + (expiry - uint64(block.timestamp));
+        agents[city][agent] = Agent(role, newExpiry);
+        emit AgentGranted(city, agent, role, newExpiry);
     }
 
     function revokeAgent(address city, address agent) external onlyMayorOf(city) {

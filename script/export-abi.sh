@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p abi
-for c in CityVault CityFactory CityGuardian ApyFeed YieldReserve MirrorYieldAdapter ERC4626Adapter; do
+for c in CityVault CityFactory CityGuardian ApyFeed YieldReserve MirrorYieldAdapter ERC4626Adapter AgentMarketplace; do
   forge inspect "$c" abi --json > "abi/$c.json"
   echo "abi/$c.json ($(python3 -c "import json,sys;print(len(json.load(open('abi/$c.json'))))") entries)"
 done

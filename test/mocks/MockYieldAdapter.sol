@@ -30,7 +30,26 @@ contract MockYieldAdapter is AdapterBase {
         IERC20(asset).safeTransfer(vault, withdrawn);
     }
 
+    /// @dev 0 = works, 1 = reverts, 2 = returns one byte (not a word), 3 = burns all the gas it is given.
+    uint8 public mode;
+
+    function setMode(uint8 newMode) external {
+        mode = newMode;
+    }
+
     function totalAssets() external view returns (uint256) {
+        if (mode == 1) revert("adapter broken");
+        if (mode == 2) {
+            assembly {
+                mstore(0, 1)
+                return(0, 1)
+            }
+        }
+        if (mode == 3) {
+            assembly {
+                for {} 1 {} {}
+            }
+        }
         return IERC20(asset).balanceOf(address(this));
     }
 
