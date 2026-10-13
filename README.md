@@ -97,6 +97,37 @@ ditolak sampai pemilik mengunci `expectedAuthor` atau `expectedWorkflowId` pada 
 Monad menagih gas limit, bukan gas yang terpakai, dan base fee testnet sekitar 100 gwei; simulasi memperkirakan
 sekitar 12,3 juta gas untuk seluruh skrip. Wallet yang baru diisi butuh beberapa detik sebelum bisa mengirim transaksi.
 
+## Bukti mainnet (B4.8): skrip siap, belum dijalankan
+
+Dua skrip menyiapkan bukti R25: satu kota kecil di Monad mainnet (chain 143) yang berinvestasi di vault Morpho
+"Grove x Steakhouse High Yield AUSD" sungguhan, tanpa yield simulasi.
+
+- `script/DeployMainnet.s.sol` men-deploy `CityGuardian`, `CityFactory` (batas deposit 200 AUSD), implementasi
+  `ERC4626Adapter` yang diizinkan dengan parameter vault Morpho, lalu mendirikan satu kota. Deployer menjadi pemilik,
+  walikota, dan treasury.
+- `script/MainnetProof.s.sol` dijalankan dua kali oleh walikota yang sama: `PHASE=in AMOUNT=20000000 CITY=0x…`
+  (approve, setor, pindahkan ke Morpho dalam beberapa `rebalance` sesuai batas per panggilan) dan, beberapa waktu
+  kemudian, `PHASE=out CITY=0x…` (tarik kembali ke idle lalu `redeem` semua share).
+
+Pengaman yang dipaksa di kode: berhenti bila bukan chain 143; kuncinya `MAINNET_DEPLOYER_PRIVATE_KEY`, variabel
+berbeda dari `DEPLOYER_PRIVATE_KEY` testnet, sehingga skrip testnet tidak bisa menyentuh mainnet; batas deposit dan
+`AMOUNT` paling banyak 200 AUSD; vault target harus ada dan asetnya AUSD. Tanpa `--broadcast` skrip hanya simulasi.
+
+```
+set -a; . ../.env; set +a                  # butuh MAINNET_DEPLOYER_PRIVATE_KEY dan MONAD_MAINNET_RPC
+forge script script/DeployMainnet.s.sol --rpc-url $MONAD_MAINNET_RPC               # simulasi di fork
+forge script script/DeployMainnet.s.sol --rpc-url $MONAD_MAINNET_RPC --broadcast   # sungguhan, butuh MON
+PHASE=in AMOUNT=20000000 CITY=0x… forge script script/MainnetProof.s.sol --rpc-url $MONAD_MAINNET_RPC --broadcast
+PHASE=out CITY=0x…                forge script script/MainnetProof.s.sol --rpc-url $MONAD_MAINNET_RPC --broadcast
+```
+
+Yang sudah diuji: `test/fork/MainnetScripts.t.sol` menjalankan kedua skrip di fork mainnet dengan kunci sekali pakai
+(deploy, setor 20 AUSD, pindah ke Morpho, maju 30 hari dengan `vm.warp`, tarik kembali, `redeem`; dompet kembali utuh
+sampai debu pembulatan) dan memeriksa penolakan batas di atas 200 AUSD. `forge script` tanpa `--broadcast` terhadap RPC
+mainnet berjalan dan memperkirakan sekitar 11,2 juta gas, kira-kira 2,3 MON untuk deploy. Yang belum: tidak ada
+transaksi mainnet yang pernah dikirim, dan `MainnetProof` belum diukur gasnya di jaringan. Eksekusi butuh dompet
+mainnet dengan sekitar 20 sampai 50 AUSD dan beberapa MON, dan izin pemilik proyek.
+
 ## Batasan yang diketahui
 
 Ditemukan oleh tinjauan independen dan sengaja belum diubah:
